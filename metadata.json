@@ -1,0 +1,6 @@
+{
+  "name": "FarmFund — Agricultural Support & Farm Workers Platform",
+  "description": "Nigerian agricultural platform connecting farmers with sponsors under transparent 30% produce or farm-funds support agreements, and a separate Farm Workers Marketplace for direct labour recruitment and wage management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,617 @@
+{
+  "entities": {
+    "SupportRequest": {
+      "title": "SupportRequest",
+      "description": "A farmer's request for financial support, agricultural materials, or equipment under the 30% sponsor share model.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerName": { "type": "string", "maxLength": 120 },
+        "title": { "type": "string", "maxLength": 200 },
+        "farmName": { "type": "string", "maxLength": 150 },
+        "farmingType": { "type": "string", "maxLength": 100 },
+        "cropOrProduceType": { "type": "string", "maxLength": 120 },
+        "location": { "type": "string", "maxLength": 150 },
+        "farmSize": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "assistanceType": { "type": "string", "enum": ["Financial Support", "Agricultural Materials", "Equipment", "Combined Support"], "maxLength": 60 },
+        "fundingAmount": { "type": "number" },
+        "materialsOrEquipment": { "type": "string", "maxLength": 1000 },
+        "farmingPeriod": { "type": "string", "maxLength": 100 },
+        "expectedHarvestDate": { "type": "string", "maxLength": 40 },
+        "estimatedOutput": { "type": "string", "maxLength": 200 },
+        "preferredShareModel": { "type": "string", "enum": ["30% Farm Produce Share", "30% Farm Funds Share"], "maxLength": 60 },
+        "acknowledgedThirtyPercentNotice": { "type": "boolean" },
+        "photographs": { "type": "array" },
+        "supportingDocuments": { "type": "array" },
+        "status": { "type": "string", "enum": ["Open", "Under Review", "Agreement Pending", "Active Support", "Completed"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "farmerId",
+        "farmerName",
+        "title",
+        "farmName",
+        "farmingType",
+        "cropOrProduceType",
+        "location",
+        "farmSize",
+        "description",
+        "assistanceType",
+        "farmingPeriod",
+        "expectedHarvestDate",
+        "estimatedOutput",
+        "preferredShareModel",
+        "acknowledgedThirtyPercentNotice",
+        "status",
+        "createdAt"
+      ]
+    },
+    "SponsorFundingAgreement": {
+      "title": "SponsorFundingAgreement",
+      "description": "A formal 30% produce or farm-funds share agreement between a farmer and a sponsor.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "requestId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "requestTitle": { "type": "string", "maxLength": 200 },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerName": { "type": "string", "maxLength": 120 },
+        "sponsorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sponsorName": { "type": "string", "maxLength": 120 },
+        "sponsorContribution": { "type": "string", "maxLength": 500 },
+        "contributionValueNaira": { "type": "number" },
+        "sharePercentage": { "type": "number" },
+        "shareType": { "type": "string", "enum": ["30% Farm Produce Share", "30% Farm Funds Share"], "maxLength": 60 },
+        "calculationMethod": { "type": "string", "maxLength": 1000 },
+        "entitlementTiming": { "type": "string", "maxLength": 500 },
+        "measurementVerification": { "type": "string", "maxLength": 1000 },
+        "lossOrPoorHarvestClause": { "type": "string", "maxLength": 1000 },
+        "additionalConditions": { "type": "string", "maxLength": 1000 },
+        "farmerAccepted": { "type": "boolean" },
+        "farmerAcceptedAt": { "type": "string", "maxLength": 60 },
+        "sponsorAccepted": { "type": "boolean" },
+        "sponsorAcceptedAt": { "type": "string", "maxLength": 60 },
+        "status": { "type": "string", "enum": ["Pending Acceptance", "Active Agreement", "Completed", "Disputed"], "maxLength": 40 },
+        "historyLog": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "requestId",
+        "requestTitle",
+        "farmerId",
+        "farmerName",
+        "sponsorId",
+        "sponsorName",
+        "sponsorContribution",
+        "contributionValueNaira",
+        "sharePercentage",
+        "shareType",
+        "calculationMethod",
+        "entitlementTiming",
+        "measurementVerification",
+        "lossOrPoorHarvestClause",
+        "farmerAccepted",
+        "sponsorAccepted",
+        "status",
+        "createdAt"
+      ]
+    },
+    "WorkerProfile": {
+      "title": "WorkerProfile",
+      "description": "A farm worker's profile, skills, experience, expected wage, and verification status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "profilePicture": { "type": "string", "maxLength": 500 },
+        "location": { "type": "string", "maxLength": 150 },
+        "skills": { "type": "array" },
+        "farmingExperience": { "type": "string", "maxLength": 1000 },
+        "availableWorkTypes": { "type": "array" },
+        "availability": { "type": "string", "maxLength": 120 },
+        "expectedWageNaira": { "type": "number" },
+        "wageUnit": { "type": "string", "maxLength": 60 },
+        "contactPhone": { "type": "string", "maxLength": 60 },
+        "contactVisibility": { "type": "string", "enum": ["Accepted Farmers Only", "Verified Farmers", "Hidden Until Offer"], "maxLength": 60 },
+        "verificationStatus": { "type": "string", "enum": ["Verified", "Pending Verification", "Unverified"], "maxLength": 40 },
+        "completedJobsCount": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "userId",
+        "fullName",
+        "location",
+        "farmingExperience",
+        "availability",
+        "expectedWageNaira",
+        "wageUnit",
+        "contactVisibility",
+        "verificationStatus",
+        "createdAt"
+      ]
+    },
+    "WorkerRequest": {
+      "title": "WorkerRequest",
+      "description": "A labour-service request seeking farm workers for agreed wages (0% sponsor share).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerName": { "type": "string", "maxLength": 120 },
+        "farmName": { "type": "string", "maxLength": 150 },
+        "jobTitle": { "type": "string", "maxLength": 200 },
+        "workCategory": { "type": "string", "maxLength": 120 },
+        "customWorkCategory": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "location": { "type": "string", "maxLength": 150 },
+        "workersNeeded": { "type": "number" },
+        "workersHired": { "type": "number" },
+        "requiredSkills": { "type": "string", "maxLength": 1000 },
+        "startDate": { "type": "string", "maxLength": 40 },
+        "expectedDuration": { "type": "string", "maxLength": 100 },
+        "workingHours": { "type": "string", "maxLength": 120 },
+        "paymentAmountNaira": { "type": "number" },
+        "paymentBasis": { "type": "string", "enum": ["Per Worker (Total Task)", "Per Worker (Daily)", "Agreed Total Team Payment"], "maxLength": 60 },
+        "paymentMethod": { "type": "string", "maxLength": 100 },
+        "accommodationOrFeeding": { "type": "string", "maxLength": 500 },
+        "contactInstructions": { "type": "string", "maxLength": 500 },
+        "photographs": { "type": "array" },
+        "acknowledgedWageRule": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["Open", "Hiring in Progress", "In Progress", "Completed"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "farmerId",
+        "farmerName",
+        "farmName",
+        "jobTitle",
+        "workCategory",
+        "description",
+        "location",
+        "workersNeeded",
+        "requiredSkills",
+        "startDate",
+        "expectedDuration",
+        "workingHours",
+        "paymentAmountNaira",
+        "paymentBasis",
+        "paymentMethod",
+        "acknowledgedWageRule",
+        "status",
+        "createdAt"
+      ]
+    },
+    "WorkerApplication": {
+      "title": "WorkerApplication",
+      "description": "A farm worker's application to a farm job request.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerRequestId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "jobTitle": { "type": "string", "maxLength": 200 },
+        "workCategory": { "type": "string", "maxLength": 120 },
+        "location": { "type": "string", "maxLength": 150 },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerName": { "type": "string", "maxLength": 120 },
+        "workerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerName": { "type": "string", "maxLength": 120 },
+        "workerSkills": { "type": "string", "maxLength": 500 },
+        "proposedWageNaira": { "type": "number" },
+        "message": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Applied", "Offered by Farmer", "Accepted by Worker", "Declined by Worker", "Rejected", "Work Completed"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "workerRequestId",
+        "jobTitle",
+        "workCategory",
+        "location",
+        "farmerId",
+        "farmerName",
+        "workerId",
+        "workerName",
+        "proposedWageNaira",
+        "message",
+        "status",
+        "createdAt"
+      ]
+    },
+    "WorkerAgreement": {
+      "title": "WorkerAgreement",
+      "description": "A direct labour and wage agreement between a farmer and a worker (strictly separate from 30% sponsor agreements).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerRequestId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "applicationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "jobTitle": { "type": "string", "maxLength": 200 },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerName": { "type": "string", "maxLength": 120 },
+        "workerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerName": { "type": "string", "maxLength": 120 },
+        "agreedWageNaira": { "type": "number" },
+        "paymentBasis": { "type": "string", "maxLength": 80 },
+        "paymentMethod": { "type": "string", "maxLength": 100 },
+        "startDate": { "type": "string", "maxLength": 40 },
+        "expectedDuration": { "type": "string", "maxLength": 100 },
+        "workCompletedConfirmed": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["Offer Sent", "Active Work", "Work Completed", "Declined"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "workerRequestId",
+        "applicationId",
+        "jobTitle",
+        "farmerId",
+        "farmerName",
+        "workerId",
+        "workerName",
+        "agreedWageNaira",
+        "paymentBasis",
+        "paymentMethod",
+        "startDate",
+        "expectedDuration",
+        "workCompletedConfirmed",
+        "status",
+        "createdAt"
+      ]
+    },
+    "WorkerPayment": {
+      "title": "WorkerPayment",
+      "description": "Record of wage payment from a farmer to a worker with explicit confirmation before marking completed.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerAgreementId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerRequestId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "jobTitle": { "type": "string", "maxLength": 200 },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerName": { "type": "string", "maxLength": 120 },
+        "workerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerName": { "type": "string", "maxLength": 120 },
+        "amountNaira": { "type": "number" },
+        "sponsorShareDeducted": { "type": "number" },
+        "paymentMethod": { "type": "string", "maxLength": 100 },
+        "workConfirmedByFarmer": { "type": "boolean" },
+        "paymentConfirmedByWorker": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["Pending Work Completion", "Awaiting Payment Confirmation", "Confirmed Paid", "Disputed"], "maxLength": 40 },
+        "paidAt": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "workerAgreementId",
+        "workerRequestId",
+        "jobTitle",
+        "farmerId",
+        "farmerName",
+        "workerId",
+        "workerName",
+        "amountNaira",
+        "sponsorShareDeducted",
+        "paymentMethod",
+        "workConfirmedByFarmer",
+        "paymentConfirmedByWorker",
+        "status",
+        "createdAt"
+      ]
+    },
+    "DirectMessage": {
+      "title": "DirectMessage",
+      "description": "Message exchanged between users regarding a farm job or support agreement.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "senderId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "senderRole": { "type": "string", "enum": ["Farmer", "Worker", "Sponsor", "Company", "Admin"], "maxLength": 30 },
+        "recipientId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recipientName": { "type": "string", "maxLength": 120 },
+        "contextTitle": { "type": "string", "maxLength": 200 },
+        "body": { "type": "string", "maxLength": 1500 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "senderId",
+        "senderName",
+        "senderRole",
+        "recipientId",
+        "recipientName",
+        "contextTitle",
+        "body",
+        "createdAt"
+      ]
+    },
+    "DisputeRecord": {
+      "title": "DisputeRecord",
+      "description": "A dispute record logged for admin review on either a Sponsor Support Agreement or a Worker Payment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "category": { "type": "string", "enum": ["Sponsor Support Agreement", "Worker Wage Payment"], "maxLength": 60 },
+        "referenceId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 200 },
+        "raisedById": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "raisedByName": { "type": "string", "maxLength": 120 },
+        "summary": { "type": "string", "maxLength": 1500 },
+        "status": { "type": "string", "enum": ["Open", "Under Mediation", "Resolved"], "maxLength": 40 },
+        "resolutionNotes": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "id",
+        "category",
+        "referenceId",
+        "title",
+        "raisedById",
+        "raisedByName",
+        "summary",
+        "status",
+        "createdAt"
+      ]
+    },
+    "UserWallet": {
+      "title": "UserWallet",
+      "description": "Public Stellar wallet record mapped to an authenticated FarmFund user or organisation (never contains secret keys).",
+      "type": "object",
+      "properties": {
+        "walletId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "role": { "type": "string", "enum": ["Farmer", "Worker", "Sponsor", "Company", "Admin"], "maxLength": 30 },
+        "walletAddress": { "type": "string", "maxLength": 64, "pattern": "^G[A-Z2-7]{55}$" },
+        "provider": { "type": "string", "maxLength": 120 },
+        "custodyModel": { "type": "string", "maxLength": 120 },
+        "network": { "type": "string", "enum": ["TESTNET", "PUBLIC"], "maxLength": 20 },
+        "status": { "type": "string", "enum": ["Wallet Creation Pending", "Wallet Created", "Activation Required", "Activation Pending", "Active", "Restricted", "Recovery Required", "Wallet Service Unavailable"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "updatedAt": { "type": "string", "maxLength": 60 },
+        "lastVerifiedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "walletId",
+        "userId",
+        "role",
+        "walletAddress",
+        "provider",
+        "custodyModel",
+        "network",
+        "status",
+        "createdAt",
+        "updatedAt",
+        "lastVerifiedAt"
+      ]
+    },
+    "WalletTransaction": {
+      "title": "WalletTransaction",
+      "description": "Stellar blockchain transaction record verified by the backend Stellar verification service.",
+      "type": "object",
+      "properties": {
+        "transactionId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "walletId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "transactionHash": { "type": "string", "maxLength": 128 },
+        "transactionType": { "type": "string", "maxLength": 60 },
+        "assetCode": { "type": "string", "enum": ["USDC", "XLM"], "maxLength": 16 },
+        "assetIssuer": { "type": "string", "maxLength": 80 },
+        "amount": { "type": "number" },
+        "senderAddress": { "type": "string", "maxLength": 64 },
+        "recipientAddress": { "type": "string", "maxLength": 64 },
+        "relatedRequestId": { "type": "string", "maxLength": 128 },
+        "relatedAgreementId": { "type": "string", "maxLength": 128 },
+        "relatedWorkerJobId": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Pending Verification", "Verified", "Failed", "Rejected"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "verifiedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "transactionId",
+        "userId",
+        "walletId",
+        "transactionHash",
+        "transactionType",
+        "assetCode",
+        "assetIssuer",
+        "amount",
+        "senderAddress",
+        "recipientAddress",
+        "status",
+        "createdAt",
+        "verifiedAt"
+      ]
+    },
+    "SupportFundingAgreementRecord": {
+      "title": "SupportFundingAgreementRecord",
+      "description": "Soroban escrow-backed sponsor support funding agreement record.",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "sponsorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "requestId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "contributionAmount": { "type": "number" },
+        "asset": { "type": "string", "enum": ["USDC", "XLM"], "maxLength": 16 },
+        "shareType": { "type": "string", "enum": ["30% Farm Produce Share", "30% Farm Funds Share"], "maxLength": 60 },
+        "agreedSharePercentage": { "type": "number" },
+        "conditions": { "type": "string", "maxLength": 2000 },
+        "acceptanceRecords": { "type": "string", "maxLength": 500 },
+        "escrowAddress": { "type": "string", "maxLength": 80 },
+        "transactionHash": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Created", "Funded in Escrow", "Released to Farmer", "Refunded", "Disputed"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "updatedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "agreementId",
+        "farmerId",
+        "sponsorId",
+        "requestId",
+        "contributionAmount",
+        "asset",
+        "shareType",
+        "agreedSharePercentage",
+        "conditions",
+        "acceptanceRecords",
+        "escrowAddress",
+        "transactionHash",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WorkerPaymentAgreementRecord": {
+      "title": "WorkerPaymentAgreementRecord",
+      "description": "Isolated Soroban worker wage payment agreement (0% sponsor share deduction).",
+      "type": "object",
+      "properties": {
+        "agreementId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "farmerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workerRequestId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "agreedWage": { "type": "number" },
+        "paymentAsset": { "type": "string", "enum": ["USDC", "XLM"], "maxLength": 16 },
+        "paymentAmount": { "type": "number" },
+        "workStatus": { "type": "string", "enum": ["Assigned", "In Progress", "Work Confirmed"], "maxLength": 40 },
+        "paymentStatus": { "type": "string", "enum": ["Pending Funding", "Escrow Funded", "Released to Worker", "Confirmed Paid"], "maxLength": 40 },
+        "transactionHash": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "updatedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "agreementId",
+        "farmerId",
+        "workerId",
+        "workerRequestId",
+        "agreedWage",
+        "paymentAsset",
+        "paymentAmount",
+        "workStatus",
+        "paymentStatus",
+        "transactionHash",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "WalletActivationRecord": {
+      "title": "WalletActivationRecord",
+      "description": "Record of Stellar account activation and USDC trustline initialization.",
+      "type": "object",
+      "properties": {
+        "activationId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "walletId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "activationMethod": { "type": "string", "maxLength": 80 },
+        "transactionHash": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Pending", "Verified Active", "Failed"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 },
+        "verifiedAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": [
+        "activationId",
+        "userId",
+        "walletId",
+        "activationMethod",
+        "transactionHash",
+        "status",
+        "createdAt",
+        "verifiedAt"
+      ]
+    },
+    "WalletAuditLog": {
+      "title": "WalletAuditLog",
+      "description": "Immutable security audit log for sensitive wallet, signing, and escrow actions.",
+      "type": "object",
+      "properties": {
+        "logId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "action": { "type": "string", "maxLength": 120 },
+        "targetUserId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "walletId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "transactionReference": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "maxLength": 60 },
+        "result": { "type": "string", "maxLength": 120 }
+      },
+      "required": [
+        "logId",
+        "actorId",
+        "action",
+        "targetUserId",
+        "walletId",
+        "transactionReference",
+        "timestamp",
+        "result"
+      ]
+    }
+  },
+  "firestore": {
+    "/supportRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/SupportRequest" },
+      "description": "Farmer requests for sponsor financial, material, or equipment support under the 30% share model."
+    },
+    "/sponsorFundingAgreements/{agreementId}": {
+      "schema": { "$ref": "#/entities/SponsorFundingAgreement" },
+      "description": "Formal 30% produce or farm-funds share agreements reviewed and accepted by both farmer and sponsor."
+    },
+    "/workerProfiles/{workerId}": {
+      "schema": { "$ref": "#/entities/WorkerProfile" },
+      "description": "Farm worker profiles, skills, availability, expected wages, and verification statuses."
+    },
+    "/workerRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/WorkerRequest" },
+      "description": "Farmer or Sponsor requests for farm workers (labour service requests, separate from sponsorship)."
+    },
+    "/workerApplications/{applicationId}": {
+      "schema": { "$ref": "#/entities/WorkerApplication" },
+      "description": "Applications submitted by workers for farm worker requests."
+    },
+    "/workerAgreements/{agreementId}": {
+      "schema": { "$ref": "#/entities/WorkerAgreement" },
+      "description": "Labour and wage agreements between farmers and workers."
+    },
+    "/workerPayments/{paymentId}": {
+      "schema": { "$ref": "#/entities/WorkerPayment" },
+      "description": "Worker wage payment records (0% sponsor deduction; requires explicit confirmation)."
+    },
+    "/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/DirectMessage" },
+      "description": "Messages between farmers and workers regarding job listings and agreements."
+    },
+    "/disputes/{disputeId}": {
+      "schema": { "$ref": "#/entities/DisputeRecord" },
+      "description": "Disputes raised for admin review across support agreements or worker payments."
+    },
+    "/userWallets/{walletId}": {
+      "schema": { "$ref": "#/entities/UserWallet" },
+      "description": "Public Stellar wallet identity and metadata per user/organisation."
+    },
+    "/walletTransactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/WalletTransaction" },
+      "description": "Verified Stellar Testnet/Mainnet USDC and XLM transactions."
+    },
+    "/supportFundingAgreements/{agreementId}": {
+      "schema": { "$ref": "#/entities/SupportFundingAgreementRecord" },
+      "description": "Soroban escrow records for sponsor-to-farmer support agreements."
+    },
+    "/workerPaymentAgreements/{agreementId}": {
+      "schema": { "$ref": "#/entities/WorkerPaymentAgreementRecord" },
+      "description": "Soroban escrow and direct payment records for worker wages (0% sponsor share)."
+    },
+    "/walletActivationRecords/{activationId}": {
+      "schema": { "$ref": "#/entities/WalletActivationRecord" },
+      "description": "Stellar account activation and USDC trustline records."
+    },
+    "/walletAuditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/WalletAuditLog" },
+      "description": "Security audit trail for wallet provisioning, signing, and escrow actions."
+    }
+  }
+}

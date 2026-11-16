@@ -1,0 +1,936 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidStellarPublicKey(addr) {
+      return addr is string && addr.size() == 56 && addr.matches('^G[A-Z2-7]{55}$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'blessedogle52@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprints
+    function isValidSupportRequest(data) {
+      return data.keys().hasAll([
+        'id', 'farmerId', 'farmerName', 'title', 'farmName', 'farmingType',
+        'cropOrProduceType', 'location', 'farmSize', 'description',
+        'assistanceType', 'fundingAmount', 'materialsOrEquipment',
+        'farmingPeriod', 'expectedHarvestDate', 'estimatedOutput',
+        'preferredShareModel', 'acknowledgedThirtyPercentNotice',
+        'photographs', 'supportingDocuments', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'farmerId', 'farmerName', 'title', 'farmName', 'farmingType',
+        'cropOrProduceType', 'location', 'farmSize', 'description',
+        'assistanceType', 'fundingAmount', 'materialsOrEquipment',
+        'farmingPeriod', 'expectedHarvestDate', 'estimatedOutput',
+        'preferredShareModel', 'acknowledgedThirtyPercentNotice',
+        'photographs', 'supportingDocuments', 'status', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.farmerId) &&
+      data.farmerName is string && data.farmerName.size() >= 1 && data.farmerName.size() <= 120 &&
+      data.title is string && data.title.size() >= 3 && data.title.size() <= 200 &&
+      data.farmName is string && data.farmName.size() >= 2 && data.farmName.size() <= 150 &&
+      data.farmingType is string && data.farmingType.size() >= 2 && data.farmingType.size() <= 100 &&
+      data.cropOrProduceType is string && data.cropOrProduceType.size() >= 2 && data.cropOrProduceType.size() <= 120 &&
+      data.location is string && data.location.size() >= 2 && data.location.size() <= 150 &&
+      data.farmSize is string && data.farmSize.size() >= 1 && data.farmSize.size() <= 80 &&
+      data.description is string && data.description.size() >= 10 && data.description.size() <= 2000 &&
+      data.assistanceType is string && data.assistanceType.size() <= 60 &&
+      data.assistanceType in ['Financial Support', 'Agricultural Materials', 'Equipment', 'Combined Support'] &&
+      data.fundingAmount is number && data.fundingAmount >= 0 && data.fundingAmount <= 1000000000 &&
+      data.materialsOrEquipment is string && data.materialsOrEquipment.size() <= 1000 &&
+      data.farmingPeriod is string && data.farmingPeriod.size() >= 2 && data.farmingPeriod.size() <= 100 &&
+      data.expectedHarvestDate is string && data.expectedHarvestDate.size() >= 4 && data.expectedHarvestDate.size() <= 40 &&
+      data.estimatedOutput is string && data.estimatedOutput.size() >= 2 && data.estimatedOutput.size() <= 200 &&
+      data.preferredShareModel is string && data.preferredShareModel.size() <= 60 &&
+      data.preferredShareModel in ['30% Farm Produce Share', '30% Farm Funds Share'] &&
+      data.acknowledgedThirtyPercentNotice is bool && data.acknowledgedThirtyPercentNotice == true &&
+      data.photographs is list && data.photographs.size() <= 10 &&
+      (data.photographs.size() == 0 || (data.photographs[0] is string && data.photographs[0].size() <= 500)) &&
+      data.supportingDocuments is list && data.supportingDocuments.size() <= 10 &&
+      (data.supportingDocuments.size() == 0 || (data.supportingDocuments[0] is string && data.supportingDocuments[0].size() <= 500)) &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Open', 'Under Review', 'Agreement Pending', 'Active Support', 'Completed'] &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidSponsorFundingAgreement(data) {
+      return data.keys().hasAll([
+        'id', 'requestId', 'requestTitle', 'farmerId', 'farmerName',
+        'sponsorId', 'sponsorName', 'sponsorContribution', 'contributionValueNaira',
+        'sharePercentage', 'shareType', 'calculationMethod', 'entitlementTiming',
+        'measurementVerification', 'lossOrPoorHarvestClause', 'additionalConditions',
+        'farmerAccepted', 'farmerAcceptedAt', 'sponsorAccepted', 'sponsorAcceptedAt',
+        'status', 'historyLog', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'requestId', 'requestTitle', 'farmerId', 'farmerName',
+        'sponsorId', 'sponsorName', 'sponsorContribution', 'contributionValueNaira',
+        'sharePercentage', 'shareType', 'calculationMethod', 'entitlementTiming',
+        'measurementVerification', 'lossOrPoorHarvestClause', 'additionalConditions',
+        'farmerAccepted', 'farmerAcceptedAt', 'sponsorAccepted', 'sponsorAcceptedAt',
+        'status', 'historyLog', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.requestId) &&
+      data.requestTitle is string && data.requestTitle.size() >= 3 && data.requestTitle.size() <= 200 &&
+      isValidId(data.farmerId) &&
+      data.farmerName is string && data.farmerName.size() >= 1 && data.farmerName.size() <= 120 &&
+      isValidId(data.sponsorId) &&
+      data.sponsorName is string && data.sponsorName.size() >= 1 && data.sponsorName.size() <= 120 &&
+      data.sponsorContribution is string && data.sponsorContribution.size() >= 3 && data.sponsorContribution.size() <= 500 &&
+      data.contributionValueNaira is number && data.contributionValueNaira >= 0 && data.contributionValueNaira <= 1000000000 &&
+      data.sharePercentage is number && data.sharePercentage == 30 &&
+      data.shareType is string && data.shareType.size() <= 60 &&
+      data.shareType in ['30% Farm Produce Share', '30% Farm Funds Share'] &&
+      data.calculationMethod is string && data.calculationMethod.size() >= 5 && data.calculationMethod.size() <= 1000 &&
+      data.entitlementTiming is string && data.entitlementTiming.size() >= 5 && data.entitlementTiming.size() <= 500 &&
+      data.measurementVerification is string && data.measurementVerification.size() >= 5 && data.measurementVerification.size() <= 1000 &&
+      data.lossOrPoorHarvestClause is string && data.lossOrPoorHarvestClause.size() >= 5 && data.lossOrPoorHarvestClause.size() <= 1000 &&
+      data.additionalConditions is string && data.additionalConditions.size() <= 1000 &&
+      data.farmerAccepted is bool &&
+      data.farmerAcceptedAt is string && data.farmerAcceptedAt.size() <= 60 &&
+      data.sponsorAccepted is bool &&
+      data.sponsorAcceptedAt is string && data.sponsorAcceptedAt.size() <= 60 &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Pending Acceptance', 'Active Agreement', 'Completed', 'Disputed'] &&
+      data.historyLog is list && data.historyLog.size() <= 25 &&
+      (data.historyLog.size() == 0 || (data.historyLog[0] is string && data.historyLog[0].size() <= 300)) &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidWorkerProfile(data) {
+      return data.keys().hasAll([
+        'id', 'userId', 'fullName', 'profilePicture', 'location', 'skills',
+        'farmingExperience', 'availableWorkTypes', 'availability',
+        'expectedWageNaira', 'wageUnit', 'contactPhone', 'contactVisibility',
+        'verificationStatus', 'completedJobsCount', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'userId', 'fullName', 'profilePicture', 'location', 'skills',
+        'farmingExperience', 'availableWorkTypes', 'availability',
+        'expectedWageNaira', 'wageUnit', 'contactPhone', 'contactVisibility',
+        'verificationStatus', 'completedJobsCount', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.userId) &&
+      data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120 &&
+      data.profilePicture is string && data.profilePicture.size() <= 500 &&
+      data.location is string && data.location.size() >= 2 && data.location.size() <= 150 &&
+      data.skills is list && data.skills.size() <= 20 &&
+      (data.skills.size() == 0 || (data.skills[0] is string && data.skills[0].size() <= 80)) &&
+      data.farmingExperience is string && data.farmingExperience.size() >= 2 && data.farmingExperience.size() <= 1000 &&
+      data.availableWorkTypes is list && data.availableWorkTypes.size() <= 20 &&
+      (data.availableWorkTypes.size() == 0 || (data.availableWorkTypes[0] is string && data.availableWorkTypes[0].size() <= 80)) &&
+      data.availability is string && data.availability.size() >= 2 && data.availability.size() <= 120 &&
+      data.expectedWageNaira is number && data.expectedWageNaira >= 0 && data.expectedWageNaira <= 10000000 &&
+      data.wageUnit is string && data.wageUnit.size() >= 2 && data.wageUnit.size() <= 60 &&
+      data.contactPhone is string && data.contactPhone.size() <= 60 &&
+      data.contactVisibility is string && data.contactVisibility.size() <= 60 &&
+      data.contactVisibility in ['Accepted Farmers Only', 'Verified Farmers', 'Hidden Until Offer'] &&
+      data.verificationStatus is string && data.verificationStatus.size() <= 40 &&
+      data.verificationStatus in ['Verified', 'Pending Verification', 'Unverified'] &&
+      data.completedJobsCount is number && data.completedJobsCount >= 0 && data.completedJobsCount <= 10000 &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidWorkerRequest(data) {
+      return data.keys().hasAll([
+        'id', 'farmerId', 'farmerName', 'farmName', 'jobTitle', 'workCategory',
+        'customWorkCategory', 'description', 'location', 'workersNeeded',
+        'workersHired', 'requiredSkills', 'startDate', 'expectedDuration',
+        'workingHours', 'paymentAmountNaira', 'paymentBasis', 'paymentMethod',
+        'accommodationOrFeeding', 'contactInstructions', 'photographs',
+        'acknowledgedWageRule', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'farmerId', 'farmerName', 'farmName', 'jobTitle', 'workCategory',
+        'customWorkCategory', 'description', 'location', 'workersNeeded',
+        'workersHired', 'requiredSkills', 'startDate', 'expectedDuration',
+        'workingHours', 'paymentAmountNaira', 'paymentBasis', 'paymentMethod',
+        'accommodationOrFeeding', 'contactInstructions', 'photographs',
+        'acknowledgedWageRule', 'status', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.farmerId) &&
+      data.farmerName is string && data.farmerName.size() >= 1 && data.farmerName.size() <= 120 &&
+      data.farmName is string && data.farmName.size() >= 2 && data.farmName.size() <= 150 &&
+      data.jobTitle is string && data.jobTitle.size() >= 3 && data.jobTitle.size() <= 200 &&
+      data.workCategory is string && data.workCategory.size() >= 2 && data.workCategory.size() <= 120 &&
+      data.customWorkCategory is string && data.customWorkCategory.size() <= 200 &&
+      data.description is string && data.description.size() >= 10 && data.description.size() <= 2000 &&
+      data.location is string && data.location.size() >= 2 && data.location.size() <= 150 &&
+      data.workersNeeded is number && data.workersNeeded >= 1 && data.workersNeeded <= 500 &&
+      data.workersHired is number && data.workersHired >= 0 && data.workersHired <= 500 &&
+      data.requiredSkills is string && data.requiredSkills.size() >= 2 && data.requiredSkills.size() <= 1000 &&
+      data.startDate is string && data.startDate.size() >= 4 && data.startDate.size() <= 40 &&
+      data.expectedDuration is string && data.expectedDuration.size() >= 2 && data.expectedDuration.size() <= 100 &&
+      data.workingHours is string && data.workingHours.size() >= 2 && data.workingHours.size() <= 120 &&
+      data.paymentAmountNaira is number && data.paymentAmountNaira > 0 && data.paymentAmountNaira <= 100000000 &&
+      data.paymentBasis is string && data.paymentBasis.size() <= 60 &&
+      data.paymentBasis in ['Per Worker (Total Task)', 'Per Worker (Daily)', 'Agreed Total Team Payment'] &&
+      data.paymentMethod is string && data.paymentMethod.size() >= 2 && data.paymentMethod.size() <= 100 &&
+      data.accommodationOrFeeding is string && data.accommodationOrFeeding.size() <= 500 &&
+      data.contactInstructions is string && data.contactInstructions.size() <= 500 &&
+      data.photographs is list && data.photographs.size() <= 10 &&
+      (data.photographs.size() == 0 || (data.photographs[0] is string && data.photographs[0].size() <= 500)) &&
+      data.acknowledgedWageRule is bool && data.acknowledgedWageRule == true &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Open', 'Hiring in Progress', 'In Progress', 'Completed'] &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidWorkerApplication(data) {
+      return data.keys().hasAll([
+        'id', 'workerRequestId', 'jobTitle', 'workCategory', 'location',
+        'farmerId', 'farmerName', 'workerId', 'workerName', 'workerSkills',
+        'proposedWageNaira', 'message', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'workerRequestId', 'jobTitle', 'workCategory', 'location',
+        'farmerId', 'farmerName', 'workerId', 'workerName', 'workerSkills',
+        'proposedWageNaira', 'message', 'status', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.workerRequestId) &&
+      data.jobTitle is string && data.jobTitle.size() >= 2 && data.jobTitle.size() <= 200 &&
+      data.workCategory is string && data.workCategory.size() >= 2 && data.workCategory.size() <= 120 &&
+      data.location is string && data.location.size() >= 2 && data.location.size() <= 150 &&
+      isValidId(data.farmerId) &&
+      data.farmerName is string && data.farmerName.size() >= 1 && data.farmerName.size() <= 120 &&
+      isValidId(data.workerId) &&
+      data.workerName is string && data.workerName.size() >= 1 && data.workerName.size() <= 120 &&
+      data.workerSkills is string && data.workerSkills.size() <= 500 &&
+      data.proposedWageNaira is number && data.proposedWageNaira > 0 && data.proposedWageNaira <= 100000000 &&
+      data.message is string && data.message.size() >= 2 && data.message.size() <= 1000 &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Applied', 'Offered by Farmer', 'Accepted by Worker', 'Declined by Worker', 'Rejected', 'Work Completed'] &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidWorkerAgreement(data) {
+      return data.keys().hasAll([
+        'id', 'workerRequestId', 'applicationId', 'jobTitle', 'farmerId',
+        'farmerName', 'workerId', 'workerName', 'agreedWageNaira',
+        'paymentBasis', 'paymentMethod', 'startDate', 'expectedDuration',
+        'workCompletedConfirmed', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'workerRequestId', 'applicationId', 'jobTitle', 'farmerId',
+        'farmerName', 'workerId', 'workerName', 'agreedWageNaira',
+        'paymentBasis', 'paymentMethod', 'startDate', 'expectedDuration',
+        'workCompletedConfirmed', 'status', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.workerRequestId) &&
+      isValidId(data.applicationId) &&
+      data.jobTitle is string && data.jobTitle.size() >= 2 && data.jobTitle.size() <= 200 &&
+      isValidId(data.farmerId) &&
+      data.farmerName is string && data.farmerName.size() >= 1 && data.farmerName.size() <= 120 &&
+      isValidId(data.workerId) &&
+      data.workerName is string && data.workerName.size() >= 1 && data.workerName.size() <= 120 &&
+      data.agreedWageNaira is number && data.agreedWageNaira > 0 && data.agreedWageNaira <= 100000000 &&
+      data.paymentBasis is string && data.paymentBasis.size() >= 2 && data.paymentBasis.size() <= 80 &&
+      data.paymentMethod is string && data.paymentMethod.size() >= 2 && data.paymentMethod.size() <= 100 &&
+      data.startDate is string && data.startDate.size() >= 4 && data.startDate.size() <= 40 &&
+      data.expectedDuration is string && data.expectedDuration.size() >= 2 && data.expectedDuration.size() <= 100 &&
+      data.workCompletedConfirmed is bool &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Offer Sent', 'Active Work', 'Work Completed', 'Declined'] &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidWorkerPayment(data) {
+      return data.keys().hasAll([
+        'id', 'workerAgreementId', 'workerRequestId', 'jobTitle', 'farmerId',
+        'farmerName', 'workerId', 'workerName', 'amountNaira',
+        'sponsorShareDeducted', 'paymentMethod', 'workConfirmedByFarmer',
+        'paymentConfirmedByWorker', 'status', 'paidAt', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'workerAgreementId', 'workerRequestId', 'jobTitle', 'farmerId',
+        'farmerName', 'workerId', 'workerName', 'amountNaira',
+        'sponsorShareDeducted', 'paymentMethod', 'workConfirmedByFarmer',
+        'paymentConfirmedByWorker', 'status', 'paidAt', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.workerAgreementId) &&
+      isValidId(data.workerRequestId) &&
+      data.jobTitle is string && data.jobTitle.size() >= 2 && data.jobTitle.size() <= 200 &&
+      isValidId(data.farmerId) &&
+      data.farmerName is string && data.farmerName.size() >= 1 && data.farmerName.size() <= 120 &&
+      isValidId(data.workerId) &&
+      data.workerName is string && data.workerName.size() >= 1 && data.workerName.size() <= 120 &&
+      data.amountNaira is number && data.amountNaira > 0 && data.amountNaira <= 100000000 &&
+      data.sponsorShareDeducted is number && data.sponsorShareDeducted == 0 &&
+      data.paymentMethod is string && data.paymentMethod.size() >= 2 && data.paymentMethod.size() <= 100 &&
+      data.workConfirmedByFarmer is bool &&
+      data.paymentConfirmedByWorker is bool &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Pending Work Completion', 'Awaiting Payment Confirmation', 'Confirmed Paid', 'Disputed'] &&
+      (data.status != 'Confirmed Paid' || (data.workConfirmedByFarmer == true && data.paymentConfirmedByWorker == true)) &&
+      data.paidAt is string && data.paidAt.size() <= 60 &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidDirectMessage(data) {
+      return data.keys().hasAll([
+        'id', 'senderId', 'senderName', 'senderRole', 'recipientId',
+        'recipientName', 'contextTitle', 'body', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'senderId', 'senderName', 'senderRole', 'recipientId',
+        'recipientName', 'contextTitle', 'body', 'replyToId', 'replyToPreview', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.senderId) &&
+      data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+      data.senderRole is string && data.senderRole.size() <= 30 &&
+      data.senderRole in ['Farmer', 'Worker', 'Sponsor', 'Company', 'Admin'] &&
+      isValidId(data.recipientId) &&
+      data.recipientName is string && data.recipientName.size() >= 1 && data.recipientName.size() <= 120 &&
+      data.contextTitle is string && data.contextTitle.size() >= 1 && data.contextTitle.size() <= 200 &&
+      data.body is string && data.body.size() >= 1 && data.body.size() <= 1500 &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    function isValidDisputeRecord(data) {
+      return data.keys().hasAll([
+        'id', 'category', 'referenceId', 'title', 'raisedById',
+        'raisedByName', 'summary', 'status', 'resolutionNotes', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'category', 'referenceId', 'title', 'raisedById',
+        'raisedByName', 'summary', 'status', 'resolutionNotes', 'createdAt'
+      ]) &&
+      isValidId(data.id) &&
+      data.category is string && data.category.size() <= 60 &&
+      data.category in ['Sponsor Support Agreement', 'Worker Wage Payment'] &&
+      isValidId(data.referenceId) &&
+      data.title is string && data.title.size() >= 3 && data.title.size() <= 200 &&
+      isValidId(data.raisedById) &&
+      data.raisedByName is string && data.raisedByName.size() >= 1 && data.raisedByName.size() <= 120 &&
+      data.summary is string && data.summary.size() >= 5 && data.summary.size() <= 1500 &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Open', 'Under Mediation', 'Resolved'] &&
+      data.resolutionNotes is string && data.resolutionNotes.size() <= 1000 &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
+    // Section 13 Validation Blueprints for Stellar Wallet & Soroban Escrow Collections
+    function isValidUserWallet(data) {
+      return data.keys().hasAll([
+        'walletId', 'userId', 'role', 'walletAddress', 'provider',
+        'custodyModel', 'network', 'status', 'createdAt', 'updatedAt', 'lastVerifiedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'walletId', 'userId', 'role', 'walletAddress', 'provider',
+        'custodyModel', 'network', 'status', 'createdAt', 'updatedAt', 'lastVerifiedAt'
+      ]) &&
+      isValidId(data.walletId) &&
+      isValidId(data.userId) &&
+      data.role is string && data.role.size() <= 30 &&
+      data.role in ['Farmer', 'Worker', 'Sponsor', 'Company', 'Admin'] &&
+      isValidStellarPublicKey(data.walletAddress) &&
+      data.provider is string && data.provider.size() >= 2 && data.provider.size() <= 120 &&
+      data.custodyModel is string && data.custodyModel.size() >= 2 && data.custodyModel.size() <= 120 &&
+      data.network is string && data.network.size() <= 20 &&
+      data.network in ['TESTNET', 'PUBLIC'] &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in [
+        'Wallet Creation Pending', 'Wallet Created', 'Activation Required',
+        'Activation Pending', 'Active', 'Restricted', 'Recovery Required',
+        'Wallet Service Unavailable'
+      ] &&
+      data.createdAt is string && data.createdAt.size() <= 60 &&
+      data.updatedAt is string && data.updatedAt.size() <= 60 &&
+      data.lastVerifiedAt is string && data.lastVerifiedAt.size() <= 60;
+    }
+
+    function isValidWalletTransaction(data) {
+      return data.keys().hasAll([
+        'transactionId', 'userId', 'walletId', 'transactionHash', 'transactionType',
+        'assetCode', 'assetIssuer', 'amount', 'senderAddress', 'recipientAddress',
+        'relatedRequestId', 'relatedAgreementId', 'relatedWorkerJobId',
+        'status', 'createdAt', 'verifiedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'transactionId', 'userId', 'walletId', 'transactionHash', 'transactionType',
+        'assetCode', 'assetIssuer', 'amount', 'senderAddress', 'recipientAddress',
+        'relatedRequestId', 'relatedAgreementId', 'relatedWorkerJobId',
+        'status', 'createdAt', 'verifiedAt'
+      ]) &&
+      isValidId(data.transactionId) &&
+      isValidId(data.userId) &&
+      isValidId(data.walletId) &&
+      data.transactionHash is string && data.transactionHash.size() >= 8 && data.transactionHash.size() <= 128 &&
+      data.transactionType is string && data.transactionType.size() >= 2 && data.transactionType.size() <= 60 &&
+      data.assetCode is string && data.assetCode.size() <= 16 &&
+      data.assetCode in ['USDC', 'XLM'] &&
+      data.assetIssuer is string && data.assetIssuer.size() <= 80 &&
+      data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+      data.senderAddress is string && data.senderAddress.size() >= 8 && data.senderAddress.size() <= 64 &&
+      data.recipientAddress is string && data.recipientAddress.size() >= 8 && data.recipientAddress.size() <= 64 &&
+      data.relatedRequestId is string && data.relatedRequestId.size() <= 128 &&
+      data.relatedAgreementId is string && data.relatedAgreementId.size() <= 128 &&
+      data.relatedWorkerJobId is string && data.relatedWorkerJobId.size() <= 128 &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Pending Verification', 'Verified', 'Failed', 'Rejected'] &&
+      data.createdAt is string && data.createdAt.size() <= 60 &&
+      data.verifiedAt is string && data.verifiedAt.size() <= 60;
+    }
+
+    function isValidSupportFundingAgreementRecord(data) {
+      return data.keys().hasAll([
+        'agreementId', 'farmerId', 'sponsorId', 'requestId', 'contributionAmount',
+        'asset', 'shareType', 'agreedSharePercentage', 'conditions', 'acceptanceRecords',
+        'escrowAddress', 'transactionHash', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'agreementId', 'farmerId', 'sponsorId', 'requestId', 'contributionAmount',
+        'asset', 'shareType', 'agreedSharePercentage', 'conditions', 'acceptanceRecords',
+        'escrowAddress', 'transactionHash', 'status', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.agreementId) &&
+      isValidId(data.farmerId) &&
+      isValidId(data.sponsorId) &&
+      isValidId(data.requestId) &&
+      data.contributionAmount is number && data.contributionAmount > 0 && data.contributionAmount <= 1000000000 &&
+      data.asset is string && data.asset.size() <= 16 && data.asset in ['USDC', 'XLM'] &&
+      data.shareType is string && data.shareType.size() <= 60 &&
+      data.shareType in ['30% Farm Produce Share', '30% Farm Funds Share'] &&
+      data.agreedSharePercentage is number && data.agreedSharePercentage == 30 &&
+      data.conditions is string && data.conditions.size() >= 5 && data.conditions.size() <= 2000 &&
+      data.acceptanceRecords is string && data.acceptanceRecords.size() <= 500 &&
+      data.escrowAddress is string && data.escrowAddress.size() >= 8 && data.escrowAddress.size() <= 80 &&
+      data.transactionHash is string && data.transactionHash.size() <= 128 &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Created', 'Funded in Escrow', 'Released to Farmer', 'Refunded', 'Disputed'] &&
+      data.createdAt is string && data.createdAt.size() <= 60 &&
+      data.updatedAt is string && data.updatedAt.size() <= 60;
+    }
+
+    function isValidWorkerPaymentAgreementRecord(data) {
+      return data.keys().hasAll([
+        'agreementId', 'farmerId', 'workerId', 'workerRequestId', 'agreedWage',
+        'paymentAsset', 'paymentAmount', 'workStatus', 'paymentStatus',
+        'transactionHash', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'agreementId', 'farmerId', 'workerId', 'workerRequestId', 'agreedWage',
+        'paymentAsset', 'paymentAmount', 'workStatus', 'paymentStatus',
+        'transactionHash', 'createdAt', 'updatedAt'
+      ]) &&
+      isValidId(data.agreementId) &&
+      isValidId(data.farmerId) &&
+      isValidId(data.workerId) &&
+      isValidId(data.workerRequestId) &&
+      data.agreedWage is number && data.agreedWage > 0 && data.agreedWage <= 100000000 &&
+      data.paymentAsset is string && data.paymentAsset.size() <= 16 && data.paymentAsset in ['USDC', 'XLM'] &&
+      data.paymentAmount is number && data.paymentAmount > 0 && data.paymentAmount <= 100000000 &&
+      data.workStatus is string && data.workStatus.size() <= 40 &&
+      data.workStatus in ['Assigned', 'In Progress', 'Work Confirmed'] &&
+      data.paymentStatus is string && data.paymentStatus.size() <= 40 &&
+      data.paymentStatus in ['Pending Funding', 'Escrow Funded', 'Released to Worker', 'Confirmed Paid'] &&
+      data.transactionHash is string && data.transactionHash.size() <= 128 &&
+      data.createdAt is string && data.createdAt.size() <= 60 &&
+      data.updatedAt is string && data.updatedAt.size() <= 60;
+    }
+
+    function isValidWalletActivationRecord(data) {
+      return data.keys().hasAll([
+        'activationId', 'userId', 'walletId', 'activationMethod',
+        'transactionHash', 'status', 'createdAt', 'verifiedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'activationId', 'userId', 'walletId', 'activationMethod',
+        'transactionHash', 'status', 'createdAt', 'verifiedAt'
+      ]) &&
+      isValidId(data.activationId) &&
+      isValidId(data.userId) &&
+      isValidId(data.walletId) &&
+      data.activationMethod is string && data.activationMethod.size() >= 2 && data.activationMethod.size() <= 80 &&
+      data.transactionHash is string && data.transactionHash.size() <= 128 &&
+      data.status is string && data.status.size() <= 40 &&
+      data.status in ['Pending', 'Verified Active', 'Failed'] &&
+      data.createdAt is string && data.createdAt.size() <= 60 &&
+      data.verifiedAt is string && data.verifiedAt.size() <= 60;
+    }
+
+    function isValidWalletAuditLog(data) {
+      return data.keys().hasAll([
+        'logId', 'actorId', 'action', 'targetUserId',
+        'walletId', 'transactionReference', 'timestamp', 'result'
+      ]) &&
+      data.keys().hasOnly([
+        'logId', 'actorId', 'action', 'targetUserId',
+        'walletId', 'transactionReference', 'timestamp', 'result'
+      ]) &&
+      isValidId(data.logId) &&
+      isValidId(data.actorId) &&
+      data.action is string && data.action.size() >= 2 && data.action.size() <= 120 &&
+      isValidId(data.targetUserId) &&
+      isValidId(data.walletId) &&
+      data.transactionReference is string && data.transactionReference.size() <= 128 &&
+      data.timestamp is string && data.timestamp.size() <= 60 &&
+      data.result is string && data.result.size() >= 2 && data.result.size() <= 120;
+    }
+
+    // Collection 1: supportRequests
+    match /supportRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (
+        existing().farmerId == request.auth.uid || existing().status in ['Open', 'Under Review', 'Agreement Pending', 'Active Support'] || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().farmerId == request.auth.uid || existing().status in ['Open', 'Under Review', 'Agreement Pending', 'Active Support'] || isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(requestId) &&
+        isValidSupportRequest(incoming()) &&
+        incoming().id == requestId &&
+        incoming().farmerId == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(requestId) &&
+        isValidSupportRequest(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().status != 'Completed' && existing().farmerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'description', 'fundingAmount', 'materialsOrEquipment'])) ||
+          (existing().status == 'Open' && incoming().status == 'Agreement Pending' && incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+        );
+      allow delete: if isAdmin() && isValidId(requestId);
+    }
+
+    // Collection 2: sponsorFundingAgreements
+    match /sponsorFundingAgreements/{agreementId} {
+      allow get: if isSignedIn() && isValidId(agreementId) && (
+        existing().farmerId == request.auth.uid ||
+        existing().sponsorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().farmerId == request.auth.uid ||
+        existing().sponsorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidSponsorFundingAgreement(incoming()) &&
+        incoming().id == agreementId &&
+        (incoming().farmerId == request.auth.uid || incoming().sponsorId == request.auth.uid) &&
+        exists(/databases/$(database)/documents/supportRequests/$(incoming().requestId));
+      allow update: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidSponsorFundingAgreement(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().requestId == existing().requestId &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().sponsorId == existing().sponsorId &&
+        incoming().sharePercentage == existing().sharePercentage &&
+        incoming().shareType == existing().shareType &&
+        incoming().calculationMethod == existing().calculationMethod &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().status == 'Pending Acceptance' && existing().farmerId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['farmerAccepted', 'farmerAcceptedAt', 'status', 'historyLog'])) ||
+          (existing().status == 'Pending Acceptance' && existing().sponsorId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['sponsorAccepted', 'sponsorAcceptedAt', 'status', 'historyLog']))
+        );
+      allow delete: if isAdmin() && isValidId(agreementId);
+    }
+
+    // Collection 3: workerProfiles
+    match /workerProfiles/{workerId} {
+      allow get: if isSignedIn() && isValidId(workerId) && (
+        existing().userId == request.auth.uid ||
+        existing().contactVisibility in ['Accepted Farmers Only', 'Verified Farmers'] ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().userId == request.auth.uid ||
+        existing().verificationStatus in ['Verified', 'Pending Verification'] ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(workerId) &&
+        isValidWorkerProfile(incoming()) &&
+        incoming().id == workerId &&
+        incoming().userId == request.auth.uid &&
+        incoming().verificationStatus == 'Pending Verification';
+      allow update: if isVerifiedUser() && isValidId(workerId) &&
+        isValidWorkerProfile(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().userId == request.auth.uid &&
+           incoming().verificationStatus == existing().verificationStatus &&
+           incoming().diff(existing()).affectedKeys().hasOnly([
+             'fullName', 'profilePicture', 'location', 'skills', 'farmingExperience',
+             'availableWorkTypes', 'availability', 'expectedWageNaira', 'wageUnit',
+             'contactPhone', 'contactVisibility'
+           ]))
+        );
+      allow delete: if isAdmin() && isValidId(workerId);
+    }
+
+    // Collection 4: workerRequests
+    match /workerRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (
+        existing().farmerId == request.auth.uid ||
+        existing().status in ['Open', 'Hiring in Progress', 'In Progress'] ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().farmerId == request.auth.uid ||
+        existing().status in ['Open', 'Hiring in Progress', 'In Progress'] ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(requestId) &&
+        isValidWorkerRequest(incoming()) &&
+        incoming().id == requestId &&
+        incoming().farmerId == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(requestId) &&
+        isValidWorkerRequest(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().status != 'Completed' && existing().farmerId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['workersHired', 'status', 'description', 'paymentAmountNaira']))
+        );
+      allow delete: if isAdmin() && isValidId(requestId);
+    }
+
+    // Collection 5: workerApplications
+    match /workerApplications/{applicationId} {
+      allow get: if isSignedIn() && isValidId(applicationId) && (
+        existing().workerId == request.auth.uid ||
+        existing().farmerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().workerId == request.auth.uid ||
+        existing().farmerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(applicationId) &&
+        isValidWorkerApplication(incoming()) &&
+        incoming().id == applicationId &&
+        incoming().workerId == request.auth.uid &&
+        exists(/databases/$(database)/documents/workerRequests/$(incoming().workerRequestId));
+      allow update: if isVerifiedUser() && isValidId(applicationId) &&
+        isValidWorkerApplication(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().workerRequestId == existing().workerRequestId &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().workerId == existing().workerId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().status != 'Work Completed' && existing().farmerId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'proposedWageNaira'])) ||
+          (existing().status == 'Offered by Farmer' && existing().workerId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+        );
+      allow delete: if isAdmin() && isValidId(applicationId);
+    }
+
+    // Collection 6: workerAgreements
+    match /workerAgreements/{agreementId} {
+      allow get: if isSignedIn() && isValidId(agreementId) && (
+        existing().farmerId == request.auth.uid ||
+        existing().workerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().farmerId == request.auth.uid ||
+        existing().workerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidWorkerAgreement(incoming()) &&
+        incoming().id == agreementId &&
+        incoming().farmerId == request.auth.uid &&
+        exists(/databases/$(database)/documents/workerRequests/$(incoming().workerRequestId));
+      allow update: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidWorkerAgreement(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().workerRequestId == existing().workerRequestId &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().workerId == existing().workerId &&
+        incoming().agreedWageNaira == existing().agreedWageNaira &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().status != 'Work Completed' && existing().farmerId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['workCompletedConfirmed', 'status'])) ||
+          (existing().status == 'Offer Sent' && existing().workerId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['status']))
+        );
+      allow delete: if isAdmin() && isValidId(agreementId);
+    }
+
+    // Collection 7: workerPayments
+    match /workerPayments/{paymentId} {
+      allow get: if isSignedIn() && isValidId(paymentId) && (
+        existing().farmerId == request.auth.uid ||
+        existing().workerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().farmerId == request.auth.uid ||
+        existing().workerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(paymentId) &&
+        isValidWorkerPayment(incoming()) &&
+        incoming().id == paymentId &&
+        incoming().farmerId == request.auth.uid &&
+        exists(/databases/$(database)/documents/workerAgreements/$(incoming().workerAgreementId));
+      allow update: if isVerifiedUser() && isValidId(paymentId) &&
+        isValidWorkerPayment(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().workerAgreementId == existing().workerAgreementId &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().workerId == existing().workerId &&
+        incoming().amountNaira == existing().amountNaira &&
+        incoming().sponsorShareDeducted == 0 &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().status != 'Confirmed Paid' && existing().farmerId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['workConfirmedByFarmer', 'status', 'paidAt'])) ||
+          (existing().status != 'Confirmed Paid' && existing().workerId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['paymentConfirmedByWorker', 'status', 'paidAt']))
+        );
+      allow delete: if isAdmin() && isValidId(paymentId);
+    }
+
+    // Collection 8: messages
+    match /messages/{messageId} {
+      allow get: if isSignedIn() && isValidId(messageId) && (
+        existing().senderId == request.auth.uid ||
+        existing().recipientId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().senderId == request.auth.uid ||
+        existing().recipientId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(messageId) &&
+        isValidDirectMessage(incoming()) &&
+        incoming().id == messageId &&
+        incoming().senderId == request.auth.uid;
+      allow update, delete: if isAdmin() && isValidId(messageId);
+    }
+
+    // Collection 9: disputes
+    match /disputes/{disputeId} {
+      allow get: if isSignedIn() && isValidId(disputeId) && (
+        existing().raisedById == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().raisedById == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(disputeId) &&
+        isValidDisputeRecord(incoming()) &&
+        incoming().id == disputeId &&
+        incoming().raisedById == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(disputeId) &&
+        isValidDisputeRecord(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().raisedById == existing().raisedById &&
+        incoming().createdAt == existing().createdAt &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'resolutionNotes']);
+      allow delete: if isAdmin() && isValidId(disputeId);
+    }
+
+    // Collection 10: admins
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
+    // Collection 11: userWallets (Section 13 & 14: User can only access own wallet, cannot change role or attach another user's wallet)
+    match /userWallets/{walletId} {
+      allow get: if isSignedIn() && isValidId(walletId) && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(walletId) &&
+        isValidUserWallet(incoming()) &&
+        incoming().walletId == walletId &&
+        incoming().userId == request.auth.uid &&
+        incoming().role in ['Farmer', 'Worker', 'Sponsor', 'Company'];
+      allow update: if isVerifiedUser() && isValidId(walletId) &&
+        isValidUserWallet(incoming()) &&
+        incoming().walletId == existing().walletId &&
+        incoming().userId == existing().userId &&
+        incoming().role == existing().role &&
+        incoming().walletAddress == existing().walletAddress &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (existing().userId == request.auth.uid &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt', 'lastVerifiedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // Collection 12: walletTransactions (Section 13 & 14: Users cannot create fake Verified transactions or alter confirmed hashes)
+    match /walletTransactions/{transactionId} {
+      allow get: if isSignedIn() && isValidId(transactionId) && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(transactionId) &&
+        isValidWalletTransaction(incoming()) &&
+        incoming().transactionId == transactionId &&
+        incoming().userId == request.auth.uid &&
+        incoming().status == 'Pending Verification';
+      allow update: if isVerifiedUser() && isValidId(transactionId) &&
+        isValidWalletTransaction(incoming()) &&
+        incoming().transactionId == existing().transactionId &&
+        incoming().userId == existing().userId &&
+        incoming().walletId == existing().walletId &&
+        incoming().transactionHash == existing().transactionHash &&
+        incoming().amount == existing().amount &&
+        incoming().createdAt == existing().createdAt &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'verifiedAt']);
+      allow delete: if false;
+    }
+
+    // Collection 13: supportFundingAgreements (Soroban Escrow Support Agreements)
+    match /supportFundingAgreements/{agreementId} {
+      allow get: if isSignedIn() && isValidId(agreementId) && (
+        existing().farmerId == request.auth.uid ||
+        existing().sponsorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().farmerId == request.auth.uid ||
+        existing().sponsorId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidSupportFundingAgreementRecord(incoming()) &&
+        incoming().agreementId == agreementId &&
+        (incoming().farmerId == request.auth.uid || incoming().sponsorId == request.auth.uid);
+      allow update: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidSupportFundingAgreementRecord(incoming()) &&
+        incoming().agreementId == existing().agreementId &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().sponsorId == existing().sponsorId &&
+        incoming().agreedSharePercentage == 30 &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          ((existing().farmerId == request.auth.uid || existing().sponsorId == request.auth.uid) &&
+           existing().status != 'Released to Farmer' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['acceptanceRecords', 'transactionHash', 'status', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // Collection 14: workerPaymentAgreements (Isolated Soroban Worker Wage Agreements — 0% Sponsor Share)
+    match /workerPaymentAgreements/{agreementId} {
+      allow get: if isSignedIn() && isValidId(agreementId) && (
+        existing().farmerId == request.auth.uid ||
+        existing().workerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().farmerId == request.auth.uid ||
+        existing().workerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidWorkerPaymentAgreementRecord(incoming()) &&
+        incoming().agreementId == agreementId &&
+        incoming().farmerId == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(agreementId) &&
+        isValidWorkerPaymentAgreementRecord(incoming()) &&
+        incoming().agreementId == existing().agreementId &&
+        incoming().farmerId == existing().farmerId &&
+        incoming().workerId == existing().workerId &&
+        incoming().agreedWage == existing().agreedWage &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          ((existing().farmerId == request.auth.uid || existing().workerId == request.auth.uid) &&
+           existing().paymentStatus != 'Confirmed Paid' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['workStatus', 'paymentStatus', 'transactionHash', 'updatedAt']))
+        );
+      allow delete: if false;
+    }
+
+    // Collection 15: walletActivationRecords
+    match /walletActivationRecords/{activationId} {
+      allow get: if isSignedIn() && isValidId(activationId) && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(activationId) &&
+        isValidWalletActivationRecord(incoming()) &&
+        incoming().activationId == activationId &&
+        incoming().userId == request.auth.uid;
+      allow update: if isVerifiedUser() && isValidId(activationId) &&
+        isValidWalletActivationRecord(incoming()) &&
+        incoming().activationId == existing().activationId &&
+        incoming().userId == existing().userId &&
+        incoming().walletId == existing().walletId &&
+        incoming().createdAt == existing().createdAt &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'transactionHash', 'verifiedAt']);
+      allow delete: if false;
+    }
+
+    // Collection 16: walletAuditLogs (Append-Only Audit Trail)
+    match /walletAuditLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && (
+        existing().actorId == request.auth.uid || existing().targetUserId == request.auth.uid || isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().actorId == request.auth.uid || existing().targetUserId == request.auth.uid || isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(logId) &&
+        isValidWalletAuditLog(incoming()) &&
+        incoming().logId == logId &&
+        incoming().actorId == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
