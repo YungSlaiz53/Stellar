@@ -64,28 +64,29 @@ export const SponsorAgreementModal: React.FC<SponsorAgreementModalProps> = ({
           </button>
         </div>
 
-        {/* Mandatory Pre-Acceptance 30% Notice */}
+        {/* Mandatory Pre-Acceptance Arrangement Notice */}
         <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50/90 p-4">
           <div className="flex items-start gap-3">
             <Scale className="mt-0.5 h-5 w-5 shrink-0 text-amber-800" />
             <div>
               <h3 className="text-sm font-bold text-amber-950">
-                IMPORTANT SPONSOR AGREEMENT — {agreement.shareType.toUpperCase()}
+                {agreement.sharePercentage === 30
+                  ? `IMPORTANT SPONSOR AGREEMENT — ${agreement.shareType.toUpperCase()}`
+                  : 'EXPLICIT FARM SUPPORT AGREEMENT TERMS'}
               </h3>
               <p className="mt-1 text-xs leading-relaxed text-amber-900">
-                By entering this support agreement through FarmFund, both parties confirm that the
-                sponsor&apos;s agreed return is <strong>30% of the eligible farm produce or farm funds</strong>,
-                as specified below. The 30% is never deducted upfront when a request is submitted, and
-                does not apply to farm worker wages.
+                {agreement.sharePercentage === 30
+                  ? 'By entering this support agreement through FarmFund, both parties explicitly confirm that the sponsor agreed return is 30% of the eligible farm produce or farm funds, as specified below. The 30% is never deducted upfront when a request is submitted, and never applies to farm worker wages.'
+                  : 'This agreement uses explicit standard support terms without a 30% produce or proceeds share. Both Farmer and Sponsor must accept before it becomes active.'}
               </p>
               <p className="mt-2 font-mono text-xs font-medium text-amber-950">
-                Illustrative Split: {sampleBreakdown.formattedSummary}
+                Breakdown: {sampleBreakdown.formattedSummary}
               </p>
             </div>
           </div>
         </div>
 
-        {/* 8 Mandatory Pre-Acceptance Disclosure Items */}
+        {/* Mandatory Pre-Acceptance Agreement Terms */}
         <div className="mt-6 space-y-4">
           <h3 className="text-sm font-semibold text-slate-900">
             Mandatory Pre-Acceptance Agreement Terms
@@ -103,13 +104,15 @@ export const SponsorAgreementModal: React.FC<SponsorAgreementModalProps> = ({
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs text-slate-500">
-                2. Agreed 30% Share &amp; 3. Produce vs. Funds Model
+                2. Agreed Return &amp; 3. Produce vs. Funds Model
               </p>
               <p className="mt-1 text-sm font-semibold text-emerald-900">
                 {agreement.sharePercentage}% Return — {agreement.shareType}
               </p>
               <p className="mt-1 text-xs text-slate-600">
-                Farmer retains 70% of eligible output/proceeds; Sponsor receives 30%.
+                {agreement.sharePercentage === 30
+                  ? 'Farmer retains 70% of eligible output/proceeds; Sponsor receives 30%.'
+                  : 'Farmer retains 100% of farm produce and proceeds under agreed support conditions.'}
               </p>
             </div>
           </div>
@@ -185,7 +188,7 @@ export const SponsorAgreementModal: React.FC<SponsorAgreementModalProps> = ({
               ) : (
                 <span className="text-sm font-medium text-amber-700">Awaiting Farmer Review</span>
               )}
-              {!agreement.farmerAccepted && !isLocked && (
+              {!agreement.farmerAccepted && !isLocked && activeRole === 'Farmer' && (
                 <button
                   type="button"
                   onClick={() => onAcceptAgreement(agreement.id, 'Farmer')}
@@ -211,7 +214,7 @@ export const SponsorAgreementModal: React.FC<SponsorAgreementModalProps> = ({
               ) : (
                 <span className="text-sm font-medium text-amber-700">Awaiting Sponsor Review</span>
               )}
-              {!agreement.sponsorAccepted && !isLocked && (
+              {!agreement.sponsorAccepted && !isLocked && activeRole === 'Sponsor' && (
                 <button
                   type="button"
                   onClick={() => onAcceptAgreement(agreement.id, 'Sponsor')}

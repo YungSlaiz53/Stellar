@@ -1,32 +1,38 @@
 import { StrKey } from '@stellar/stellar-sdk';
 import {
+  PlatformUser,
+  ProfileVerificationStatus,
+  RegistrationPayload,
   ShareArrangementType,
   SponsorFundingAgreement,
   StellarNetworkType,
+  SupervisionAssignment,
+  SupervisionRequest,
   SupportFundingAgreementRecord,
   SupportRequest,
+  UserRole,
   WorkerPayment,
   WorkerPaymentAgreementRecord,
   WorkerPaymentBasis,
-  WorkerPaymentStatus,
   WorkerRequest,
+  WorkerPaymentStatus,
 } from '../types/farmfund';
 
 // ============================================================================
-// OFFICIAL CIRCLE USDC & STELLAR ASSET CONFIGURATION (SECTION 5)
+// OFFICIAL CIRCLE USDC & STELLAR ASSET CONFIGURATION
 // ============================================================================
 
 export const OFFICIAL_STELLAR_USDC_CONFIG = {
   assetCode: 'USDC' as const,
-  // Official Circle Stellar Testnet USDC Issuer (from official Stellar & Circle docs)
   testnetIssuer: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
-  // Official Circle Stellar Mainnet USDC Issuer (from official Circle docs)
   mainnetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
   sorobanSupportEscrowContractId:
     'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',
   sorobanWorkerEscrowContractId:
     'CB64D3G7SM2RTH6JSGG34DDTFTQ5CFDKVDZJZSODMCX4NJ2HV2KN7OHT',
 } as const;
+
+export const OFFICIAL_USDC_ISSUER_TESTNET = OFFICIAL_STELLAR_USDC_CONFIG.testnetIssuer;
 
 export function isValidStellarPublicAddress(address: string): boolean {
   if (!address || typeof address !== 'string') return false;
@@ -72,6 +78,222 @@ export function validateOfficialStellarAsset(params: {
 
   return { valid: true };
 }
+
+// ============================================================================
+// FOUR-ROLE REGISTRATION & ROLE INTEGRITY GUARDS (SECTIONS 2, 10, 11)
+// ============================================================================
+
+export const PUBLIC_REGISTRATION_ROLES = ['Worker', 'Farmer', 'Supervisor', 'Sponsor'] as const;
+
+export function isAllowedPublicRegistrationRole(role: string): boolean {
+  return (PUBLIC_REGISTRATION_ROLES as readonly string[]).includes(role);
+}
+
+export function validateRegistrationPayload(payload: Partial<RegistrationPayload>): string | null {
+  if (!payload.role || !isAllowedPublicRegistrationRole(payload.role)) {
+    return 'Please select one of the four public roles: Worker, Farmer, Supervisor, or Sponsor.';
+  }
+
+  if (payload.role === 'Sponsor' && payload.sponsorType === 'organisation') {
+    if (!payload.organisationName?.trim()) return 'Organisation or company name is required.';
+    if (!payload.email?.trim() || !payload.email.includes('@')) {
+      return 'A valid official email address is required.';
+    }
+    if (!payload.password || payload.password.length < 8) {
+      return 'Password must be at least 8 characters.';
+    }
+    if (!payload.phone?.trim()) return 'Phone number is required.';
+    if (!payload.officeAddress?.trim()) return 'Office address is required.';
+    if (!payload.country?.trim() || !payload.townOrLocation?.trim()) {
+      return 'Country and location are required.';
+    }
+    if (!payload.organisationType?.trim()) return 'Organisation type is required.';
+    if (!payload.representativeName?.trim()) return "Representative's full name is required.";
+    if (!payload.representativePosition?.trim()) return "Representative's position is required.";
+    if (!payload.representativeIdDocument?.trim()) {
+      return "Representative's government identification document reference is required.";
+    }
+    if (!payload.registrationDocuments || payload.registrationDocuments.length === 0) {
+      return 'Organisation registration document reference is required.';
+    }
+    if (!payload.description?.trim()) return 'Organisation description is required.';
+    return null;
+  }
+
+  if (!payload.fullName?.trim()) return 'Full name is required.';
+  if (!payload.email?.trim() || !payload.email.includes('@')) {
+    return 'A valid email address is required.';
+  }
+  if (!payload.password || payload.password.length < 8) {
+    return 'Password must be at least 8 characters.';
+  }
+  if (!payload.phone?.trim()) return 'Phone number with country code is required.';
+  if (!payload.country?.trim()) return 'Country is required.';
+  if (!payload.state?.trim()) return 'State is required.';
+  if (!payload.lga?.trim()) return 'Local government area (LGA) is required.';
+  if (!payload.townOrLocation?.trim()) return 'Town or residential/farm location is required.';
+  if (!payload.governmentIdDocument?.trim()) {
+    return 'A government-issued ID document reference is required for verification.';
+  }
+
+  if (payload.role === 'Worker') {
+    if (!payload.skills || payload.skills.length === 0) {
+      return 'Please list at least one agricultural skill.';
+    }
+    if (!payload.availableWorkTypes || payload.availableWorkTypes.length === 0) {
+      return 'Select at least one type of farm work you can perform.';
+    }
+    if (!payload.expectedWageNaira || Number(payload.expectedWageNaira) <= 0) {
+      return 'Expected wage preference must be greater than ₦0.';
+    }
+    if (!payload.availability?.trim()) return 'Please specify your availability.';
+    if (!payload.bio?.trim()) return 'Please provide a short personal description.';
+  }
+
+  if (payload.role === 'Farmer') {
+    if (!payload.farmName?.trim()) return 'Farm name is required.';
+    if (!payload.farmLocation?.trim()) return 'Farm location is required.';
+    if (!payload.farmingType?.trim()) return 'Farming type is required.';
+    if (!payload.cropsOrLivestock?.trim()) return 'Crops or livestock details are required.';
+    if (!payload.farmSize?.trim()) return 'Farm size is required.';
+    if (!payload.yearsOfExperience?.trim()) return 'Years of farming experience is required.';
+    if (!payload.farmDescription?.trim()) return 'Farm description is required.';
+  }
+
+  if (payload.role === 'Supervisor') {
+    if (!payload.professionalQualifications?.trim()) {
+      return 'Professional qualifications are required.';
+    }
+    if (!payload.agriculturalExperience?.trim()) {
+      return 'Agricultural experience is required.';
+    }
+    if (!payload.specialisations || payload.specialisations.length === 0) {
+      return 'Select at least one supervision area of specialisation.';
+    }
+    if (!payload.previousSupervisionExperience?.trim()) {
+      return 'Previous supervision experience is required.';
+    }
+    if (!payload.bio?.trim()) return 'Short professional description is required.';
+    if (!payload.availabilityAndServiceLocations?.trim()) {
+      return 'Availability and service locations are required.';
+    }
+  }
+
+  if (payload.role === 'Sponsor') {
+    if (!payload.description?.trim()) return 'Personal sponsor description is required.';
+    if (!payload.agriculturalInterests || payload.agriculturalInterests.length === 0) {
+      return 'Select at least one area of agricultural interest.';
+    }
+    if (!payload.supportTypesProvided || payload.supportTypesProvided.length === 0) {
+      return 'Select at least one type of support you provide.';
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Ensures users cannot change their own primary role or self-verify their own account.
+ * Editing verified identity fields automatically resets verificationStatus to 'Pending Verification'.
+ */
+export function evaluateProfileUpdatePermissions(params: {
+  actorUser: Pick<PlatformUser, 'id' | 'role' | 'verificationStatus'>;
+  targetUserId: string;
+  attemptedRoleChange?: UserRole;
+  attemptedStatusChange?: ProfileVerificationStatus;
+  editedVerifiedIdentityFields: boolean;
+}): {
+  allowed: boolean;
+  nextVerificationStatus: ProfileVerificationStatus;
+  error?: string;
+} {
+  const isActorAdmin = params.actorUser.role === 'Admin';
+  if (!isActorAdmin && params.actorUser.id !== params.targetUserId) {
+    return {
+      allowed: false,
+      nextVerificationStatus: params.actorUser.verificationStatus,
+      error: 'You may only update your own profile.',
+    };
+  }
+
+  if (!isActorAdmin && params.attemptedRoleChange && params.attemptedRoleChange !== params.actorUser.role) {
+    return {
+      allowed: false,
+      nextVerificationStatus: params.actorUser.verificationStatus,
+      error: 'Users cannot change their primary account role after registration.',
+    };
+  }
+
+  if (
+    !isActorAdmin &&
+    params.attemptedStatusChange &&
+    params.attemptedStatusChange === 'Verified' &&
+    params.actorUser.verificationStatus !== 'Verified'
+  ) {
+    return {
+      allowed: false,
+      nextVerificationStatus: params.actorUser.verificationStatus,
+      error: 'Users cannot approve their own verification. An authorised Admin reviewer must verify the profile.',
+    };
+  }
+
+  const nextVerificationStatus: ProfileVerificationStatus =
+    !isActorAdmin &&
+    params.editedVerifiedIdentityFields &&
+    params.actorUser.verificationStatus === 'Verified'
+      ? 'Pending Verification'
+      : params.actorUser.verificationStatus;
+
+  return {
+    allowed: true,
+    nextVerificationStatus,
+  };
+}
+
+/**
+ * Enforces Section 6 & 8 rule: A Supervisor can ONLY view/act on projects where:
+ * 1) Agreement is accepted/active,
+ * 2) Supervision was explicitly required/requested, AND
+ * 3) This specific supervisor was invited (for invitation response) or assigned (for reporting).
+ */
+export function canSupervisorAccessProject(params: {
+  supervisorId: string;
+  assignment?: Pick<SupervisionAssignment, 'supervisorId' | 'status'>;
+  invitation?: Pick<SupervisionRequest, 'invitedSupervisorId' | 'status'>;
+  agreementAccepted: boolean;
+  supervisionRequired: boolean;
+}): boolean {
+  if (!params.agreementAccepted || !params.supervisionRequired) return false;
+  if (params.assignment && params.assignment.supervisorId === params.supervisorId) {
+    return true;
+  }
+  if (
+    params.invitation &&
+    params.invitation.invitedSupervisorId === params.supervisorId &&
+    (params.invitation.status === 'Invited' || params.invitation.status === 'Accepted')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Enforces Section 6 rule: Supervisors have zero wallet transfer or escrow release powers.
+ */
+export function canRoleExecuteWalletTransfer(role: UserRole): boolean {
+  return role === 'Worker' || role === 'Farmer' || role === 'Sponsor';
+}
+
+/**
+ * Enforces Section 13/4/5/6/7 rule: A logged-in user is strictly locked to their primary role's dashboard.
+ */
+export function canAccessRoleDashboard(userRole: UserRole, targetDashboard: UserRole): boolean {
+  return userRole === targetDashboard;
+}
+
+// ============================================================================
+// STELLAR WAGE & SPONSOR 30% SHARE CALCULATIONS (PRESERVED + FLEXIBLE)
+// ============================================================================
 
 export interface WorkerUsdcObligationBreakdown {
   workersCount: number;
@@ -120,8 +342,6 @@ export function calculateWorkerWageUsdcObligations(params: {
     individualWorkerObligations,
   };
 }
-
-export const OFFICIAL_USDC_ISSUER_TESTNET = OFFICIAL_STELLAR_USDC_CONFIG.testnetIssuer;
 
 export function calculateWorkerUsdcPaymentObligation(params: {
   workersCount: number;
@@ -183,7 +403,6 @@ export function validateStellarPaymentDraft(params: {
   return null;
 }
 
-
 export function validateSorobanEscrowTransition(params: {
   escrowDomain: 'SPONSOR_SUPPORT_30_PERCENT' | 'WORKER_WAGE_0_PERCENT';
   currentStatus: SupportFundingAgreementRecord['status'] | WorkerPaymentAgreementRecord['paymentStatus'];
@@ -226,7 +445,6 @@ export function validateSorobanEscrowTransition(params: {
     return { allowed: true, nextStatus: 'Disputed' };
   }
 
-  // Isolated Worker Wage Escrow (0% Sponsor Share)
   if (params.currentStatus === 'Confirmed Paid' || params.currentStatus === 'Released to Worker') {
     return {
       allowed: false,
@@ -242,7 +460,7 @@ export function validateSorobanEscrowTransition(params: {
       return {
         allowed: false,
         nextStatus: params.currentStatus,
-        error: 'Work completion must be confirmed by the farmer before releasing worker wages from escrow.',
+        error: 'Work completion must be confirmed by the hiring party before releasing worker wages from escrow.',
       };
     }
     return { allowed: true, nextStatus: 'Released to Worker' };
@@ -251,24 +469,31 @@ export function validateSorobanEscrowTransition(params: {
 }
 
 export interface SponsorReturnCalculationResult {
-  sharePercentage: 30;
-  farmerRetentionPercentage: 70;
+  sharePercentage: 0 | 30;
+  farmerRetentionPercentage: 70 | 100;
   shareType: ShareArrangementType;
   sponsorShareValue: number;
   farmerRetainedValue: number;
   formattedSummary: string;
 }
 
-/**
- * Calculates the 30% sponsor return arrangement (either 30% Farm Produce Share or 30% Farm Funds Share).
- * Never deducts automatically upon request submission; strictly used to display transparent pre-acceptance breakdown.
- */
 export function calculateSponsorThirtyPercentShare(params: {
   shareType: ShareArrangementType;
   eligibleTotalAmount: number;
   unitLabel: string;
 }): SponsorReturnCalculationResult {
   const safeTotal = Math.max(0, Number(params.eligibleTotalAmount) || 0);
+  if (params.shareType === 'None (Standard Support)') {
+    return {
+      sharePercentage: 0,
+      farmerRetentionPercentage: 100,
+      shareType: params.shareType,
+      sponsorShareValue: 0,
+      farmerRetainedValue: safeTotal,
+      formattedSummary: `No 30% produce/proceeds share applies (${safeTotal.toLocaleString('en-NG')} ${params.unitLabel} retained by farmer; terms defined explicitly in agreement).`,
+    };
+  }
+
   const sponsorShareValue = Math.round(safeTotal * 0.3 * 100) / 100;
   const farmerRetainedValue = Math.round(safeTotal * 0.7 * 100) / 100;
 
@@ -296,10 +521,6 @@ export interface WorkerWageSummary {
   formattedRuleNotice: string;
 }
 
-/**
- * Calculates direct worker wages and guarantees 0% sponsor share deduction.
- * Farm workers are paid directly for their labour according to agreed wages.
- */
 export function calculateWorkerWageSummary(params: {
   workersNeeded: number;
   paymentAmountNaira: number;
@@ -329,9 +550,6 @@ export function calculateWorkerWageSummary(params: {
   };
 }
 
-/**
- * Enforces dual-party explicit acceptance before a SponsorFundingAgreement becomes 'Active Agreement'.
- */
 export function acceptSponsorAgreementParty(
   agreement: SponsorFundingAgreement,
   party: 'Farmer' | 'Sponsor',
@@ -340,23 +558,30 @@ export function acceptSponsorAgreementParty(
   const updated: SponsorFundingAgreement = {
     ...agreement,
     historyLog: [...agreement.historyLog],
+    updatedAt: timestampIso,
   };
 
   if (party === 'Farmer' && !updated.farmerAccepted) {
     updated.farmerAccepted = true;
     updated.farmerAcceptedAt = timestampIso;
-    updated.historyLog.push(`Farmer (${updated.farmerName}) explicitly accepted 30% terms at ${timestampIso}`);
+    updated.historyLog.push(
+      `Farmer (${updated.farmerName}) explicitly accepted agreement terms (${updated.shareType}) at ${timestampIso}`
+    );
   }
 
   if (party === 'Sponsor' && !updated.sponsorAccepted) {
     updated.sponsorAccepted = true;
     updated.sponsorAcceptedAt = timestampIso;
-    updated.historyLog.push(`Sponsor (${updated.sponsorName}) explicitly accepted 30% terms at ${timestampIso}`);
+    updated.historyLog.push(
+      `Sponsor (${updated.sponsorName}) explicitly accepted agreement terms (${updated.shareType}) at ${timestampIso}`
+    );
   }
 
   if (updated.farmerAccepted && updated.sponsorAccepted) {
     updated.status = 'Active Agreement';
-    updated.historyLog.push(`Agreement activated after mutual acceptance by both Farmer and Sponsor at ${timestampIso}`);
+    updated.historyLog.push(
+      `Agreement activated after mutual acceptance by both Farmer and Sponsor at ${timestampIso}`
+    );
   } else {
     updated.status = 'Pending Acceptance';
   }
@@ -364,11 +589,6 @@ export function acceptSponsorAgreementParty(
   return updated;
 }
 
-/**
- * Enforces that a WorkerPayment is never marked 'Confirmed Paid' until BOTH:
- * 1) Farmer confirms work completion and initiates payment, AND
- * 2) Worker confirms receipt of the agreed wage.
- */
 export function evaluateWorkerPaymentTransition(
   payment: WorkerPayment,
   action: 'FARMER_CONFIRM_WORK_AND_INITIATE' | 'WORKER_CONFIRM_RECEIPT',
@@ -377,6 +597,7 @@ export function evaluateWorkerPaymentTransition(
   const next: WorkerPayment = {
     ...payment,
     sponsorShareDeducted: 0,
+    updatedAt: timestampIso,
   };
 
   if (action === 'FARMER_CONFIRM_WORK_AND_INITIATE') {
@@ -397,9 +618,6 @@ export function evaluateWorkerPaymentTransition(
   return next;
 }
 
-/**
- * Validates the Request Farm Support form fields so empty or unacknowledged submissions are rejected.
- */
 export function validateSupportRequestDraft(draft: Partial<SupportRequest>): string | null {
   if (!draft.title?.trim()) return 'Request title is required.';
   if (!draft.farmName?.trim()) return "Farmer's farm name is required.";
@@ -414,22 +632,22 @@ export function validateSupportRequestDraft(draft: Partial<SupportRequest>): str
   if (!draft.expectedHarvestDate?.trim()) return 'Expected harvest date is required.';
   if (!draft.estimatedOutput?.trim()) return 'Estimated harvest or farm output is required.';
   if (!draft.preferredShareModel) {
-    return 'Please select either the 30% Farm Produce Share or 30% Farm Funds Share arrangement.';
+    return 'Please choose whether this request uses standard support terms or an explicit 30% Produce / Farm Funds arrangement.';
   }
-  if (!draft.acknowledgedThirtyPercentNotice) {
-    return 'You must acknowledge the Important Sponsor Agreement (30% share notice) before submitting.';
+  if (
+    draft.preferredShareModel !== 'None (Standard Support)' &&
+    !draft.acknowledgedThirtyPercentNotice
+  ) {
+    return 'You must explicitly confirm and acknowledge the 30% Produce or Farm Funds sharing arrangement before submitting.';
   }
   return null;
 }
 
-/**
- * Validates the Request Farm Workers form fields so empty or unacknowledged labour requests are rejected.
- */
 export function validateWorkerRequestDraft(draft: Partial<WorkerRequest>): string | null {
   if (!draft.jobTitle?.trim()) return 'Job title is required.';
   if (!draft.workCategory?.trim()) return 'Type of farm work is required.';
-  if (draft.workCategory === 'Other farm-related work' && !draft.customWorkCategory?.trim()) {
-    return 'Please specify the custom farm-related work category.';
+  if (draft.workCategory === 'Other agricultural work' && !draft.customWorkCategory?.trim()) {
+    return 'Please specify the custom agricultural work category.';
   }
   if (!draft.description?.trim() || draft.description.trim().length < 10) {
     return 'Description of the farm work is required.';
@@ -452,10 +670,6 @@ export function validateWorkerRequestDraft(draft: Partial<WorkerRequest>): strin
   return null;
 }
 
-/**
- * Computes strictly separated Admin & Dashboard accounting metrics so Sponsor 30% Agreements
- * and Worker Wage Payments are never mixed.
- */
 export function computeSeparatedPlatformMetrics(params: {
   supportRequests: SupportRequest[];
   sponsorAgreements: SponsorFundingAgreement[];

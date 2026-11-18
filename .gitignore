@@ -7,4 +7,5 @@ coverage/
 .env*
 !.env.example
 .server-stellar-vault.json
+.farmfund-platform.json
 .playwright-cli/

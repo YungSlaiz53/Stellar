@@ -5,12 +5,19 @@
     --font-display: 'Fraunces', Georgia, serif;
     --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
+    --ff-primary: #159B42;
+    --ff-primary-dark: #116B32;
+    --ff-primary-light: #EAF6EC;
+    --ff-bg: #F5F8F3;
+    --ff-surface: #FFFFFF;
+    --ff-text: #243629;
+    --ff-text-secondary: #718071;
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: #F8FAFC;
-    color: #0F172A;
+    background-color: #F5F8F3;
+    color: #243629;
     -webkit-font-smoothing: antialiased;
   }
 

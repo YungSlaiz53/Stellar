@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import {
   ShareArrangementType,
+  SponsorType,
   SupportFundingAgreementRecord,
   SupportRequest,
   UserRole,
@@ -30,7 +31,7 @@ import {
 } from '../types/farmfund';
 import {
   calculateWorkerUsdcPaymentObligation,
-   OFFICIAL_USDC_ISSUER_TESTNET,
+  OFFICIAL_USDC_ISSUER_TESTNET,
   validateStellarPaymentDraft,
 } from '../utils/farmfundLogic';
 
@@ -38,6 +39,7 @@ interface StellarWalletDashboardProps {
   userId: string;
   userName: string;
   role: UserRole;
+  sponsorType?: SponsorType;
   supportRequests: SupportRequest[];
   workerRequests: WorkerRequest[];
 }
@@ -46,9 +48,12 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
   userId,
   userName,
   role,
+  sponsorType,
   supportRequests,
   workerRequests,
 }) => {
+  const isReadOnlyWalletRole = role === 'Admin' || role === 'Supervisor';
+  const isOrgSponsor = role === 'Sponsor' && sponsorType === 'organisation';
   const [wallet, setWallet] = useState<UserWallet | null>(null);
   const [officialUsdcIssuer, setOfficialUsdcIssuer] = useState<string>(
     OFFICIAL_USDC_ISSUER_TESTNET
@@ -116,8 +121,9 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
         body: JSON.stringify({
           userId,
           role,
+          sponsorType,
           displayName: userName,
-          organisationName: role === 'Company' ? userName : undefined,
+          organisationName: isOrgSponsor ? userName : undefined,
         }),
       });
       if (!provRes.ok) {
@@ -165,7 +171,7 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [userId, userName, role]);
+  }, [userId, userName, role, sponsorType, isOrgSponsor]);
 
   useEffect(() => {
     void loadOrProvisionWallet();
@@ -451,7 +457,7 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {wallet?.status !== 'Active' && role !== 'Admin' && (
+          {wallet?.status !== 'Active' && !isReadOnlyWalletRole && (
             <button
               type="button"
               disabled={activating || loading}
@@ -480,7 +486,7 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
       </div>
 
       {/* Unactivated Wallet Honest Notice */}
-      {wallet && wallet.status !== 'Active' && role !== 'Admin' && (
+      {wallet && wallet.status !== 'Active' && !isReadOnlyWalletRole && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-950">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
@@ -590,17 +596,17 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
         </div>
       </div>
 
-      {/* Company / Organisation Multi-Representative Policy Banner */}
-      {role === 'Company' && wallet?.authorisedRepresentatives && (
-        <div className="mt-4 rounded-2xl border border-indigo-200 bg-white p-4">
+      {/* Organisation Sponsor Multi-Representative Policy Banner */}
+      {isOrgSponsor && wallet?.authorisedRepresentatives && (
+        <div className="mt-4 rounded-2xl border border-emerald-900/15 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-indigo-700" />
+              <Building2 className="h-4 w-4 text-[#116B32]" />
               <h3 className="text-xs font-bold text-slate-900">
                 Organisation Wallet Governance · {wallet.organisationName || userName}
               </h3>
             </div>
-            <span className="text-[11px] font-semibold text-indigo-800">
+            <span className="text-[11px] font-semibold text-[#116B32]">
               {wallet.approvalPolicy}
             </span>
           </div>
@@ -630,24 +636,32 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
         {(
           [
             'Overview & Send',
-            'Receive & QR',
+            ...(isReadOnlyWalletRole ? [] : (['Receive & QR'] as const)),
             'Soroban Escrows & Wages',
             'Transactions & Audit',
           ] as const
-        ).map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveSubTab(tab)}
-            className={`rounded-lg px-3.5 py-2 text-xs font-bold transition-colors ${
-              activeSubTab === tab
-                ? 'bg-[#159B42] text-white shadow-2xs'
-                : 'text-slate-600 hover:bg-[#EAF6EC] hover:text-[#116B32]'
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
+        ).map((tab) => {
+          const displayLabel =
+            isReadOnlyWalletRole && tab === 'Overview & Send'
+              ? 'Overview (Read-Only)'
+              : isReadOnlyWalletRole && tab === 'Soroban Escrows & Wages'
+                ? 'Escrows & Wages (Read-Only)'
+                : tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveSubTab(tab)}
+              className={`rounded-lg px-3.5 py-2 text-xs font-bold transition-colors ${
+                activeSubTab === tab
+                  ? 'bg-[#159B42] text-white shadow-2xs'
+                  : 'text-slate-600 hover:bg-[#EAF6EC] hover:text-[#116B32]'
+              }`}
+            >
+              {displayLabel}
+            </button>
+          );
+        })}
       </div>
 
       {/* TAB 1: OVERVIEW, SEND PAYMENT & NGN RAMP COMPLIANCE */}
@@ -667,10 +681,11 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
               </span>
             </div>
 
-            {role === 'Admin' ? (
+            {isReadOnlyWalletRole ? (
               <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-700">
-                Administrator accounts have <strong>restricted monitoring permissions</strong> and
-                cannot initiate commercial outbound transfers.
+                {role} accounts have <strong>read-only monitoring permissions</strong> and cannot
+                initiate commercial outbound wallet transfers, withdraw user funds, or unilaterally
+                release escrow funds.
               </div>
             ) : (
               <form onSubmit={handleSendPayment} className="mt-4 space-y-4">
@@ -918,14 +933,19 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                   <select
                     value={selectedSupportReqId}
                     onChange={(e) => setSelectedSupportReqId(e.target.value)}
+                    disabled={supportRequests.length === 0 || isReadOnlyWalletRole}
                     className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900"
                   >
-                    {supportRequests.map((req) => (
-                      <option key={req.id} value={req.id}>
-                        {req.title} ({req.farmerName} · ₦{req.fundingAmount.toLocaleString('en-NG')}
-                        )
-                      </option>
-                    ))}
+                    {supportRequests.length === 0 ? (
+                      <option value="">No farm support requests available</option>
+                    ) : (
+                      supportRequests.map((req) => (
+                        <option key={req.id} value={req.id}>
+                          {req.title} ({req.farmerName} · ₦{req.fundingAmount.toLocaleString('en-NG')}
+                          )
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 
@@ -937,6 +957,7 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                     <input
                       type="number"
                       min="1"
+                      disabled={isReadOnlyWalletRole}
                       value={escrowContributionUsdc}
                       onChange={(e) => setEscrowContributionUsdc(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-mono text-xs"
@@ -944,10 +965,11 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-700">
-                      Agreed 30% Share Model
+                      Agreed Share Model
                     </label>
                     <select
                       value={escrowShareType}
+                      disabled={isReadOnlyWalletRole}
                       onChange={(e) => setEscrowShareType(e.target.value as ShareArrangementType)}
                       className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs"
                     >
@@ -957,14 +979,16 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={escrowBusy}
-                  onClick={() => void handleFundSupportEscrow()}
-                  className="w-full rounded-xl bg-[#159B42] py-2.5 text-xs font-bold text-white hover:bg-[#116B32] disabled:opacity-50"
-                >
-                  Lock USDC in Soroban 30% Support Escrow
-                </button>
+                {!isReadOnlyWalletRole && (
+                  <button
+                    type="button"
+                    disabled={escrowBusy || supportRequests.length === 0}
+                    onClick={() => void handleFundSupportEscrow()}
+                    className="w-full rounded-xl bg-[#159B42] py-2.5 text-xs font-bold text-white hover:bg-[#116B32] disabled:opacity-50"
+                  >
+                    Lock USDC in Soroban 30% Support Escrow
+                  </button>
+                )}
               </div>
 
               <div className="mt-4 space-y-2.5">
@@ -995,7 +1019,7 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                         <span className="font-mono text-[11px] text-slate-400">
                           Tx: {esc.transactionHash.slice(0, 16)}...
                         </span>
-                        {esc.status === 'Funded in Escrow' && (
+                        {esc.status === 'Funded in Escrow' && !isReadOnlyWalletRole && (
                           <button
                             type="button"
                             disabled={escrowBusy}
@@ -1101,27 +1125,34 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                     </label>
                     <select
                       value={selectedWorkerReqId}
+                      disabled={workerRequests.length === 0 || isReadOnlyWalletRole}
                       onChange={(e) => setSelectedWorkerReqId(e.target.value)}
                       className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs"
                     >
-                      {workerRequests.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.jobTitle}
-                        </option>
-                      ))}
+                      {workerRequests.length === 0 ? (
+                        <option value="">No farm jobs published yet</option>
+                      ) : (
+                        workerRequests.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.jobTitle}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  disabled={escrowBusy}
-                  onClick={() => void handleFundWorkerWageEscrow()}
-                  className="w-full rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Fund Worker Wage Escrow ({wageCalculation.totalObligationUsdc.toFixed(2)} USDC ·
-                  0% Sponsor Share)
-                </button>
+                {!isReadOnlyWalletRole && (
+                  <button
+                    type="button"
+                    disabled={escrowBusy || workerRequests.length === 0}
+                    onClick={() => void handleFundWorkerWageEscrow()}
+                    className="w-full rounded-xl bg-slate-900 py-2.5 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    Fund Worker Wage Escrow ({wageCalculation.totalObligationUsdc.toFixed(2)} USDC ·
+                    0% Sponsor Share)
+                  </button>
+                )}
               </div>
 
               <div className="mt-4 space-y-2.5">
@@ -1155,7 +1186,7 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                         <span className="font-mono text-[11px] text-slate-400">
                           Tx: {wesc.transactionHash.slice(0, 16)}...
                         </span>
-                        {wesc.paymentStatus === 'Escrow Funded' && (
+                        {wesc.paymentStatus === 'Escrow Funded' && !isReadOnlyWalletRole && (
                           <button
                             type="button"
                             disabled={escrowBusy}

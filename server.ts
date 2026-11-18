@@ -18,6 +18,7 @@ import { createServer as createViteServer } from 'vite';
 import type {
   OrganisationRepresentative,
   ShareArrangementType,
+  SponsorType,
   StellarNetworkType,
   SupportFundingAgreementRecord,
   UserRole,
@@ -27,6 +28,11 @@ import type {
   WalletTransaction,
   WorkerPaymentAgreementRecord,
 } from './src/types/farmfund';
+import {
+  ensureDevUserRecord,
+  platformState,
+  registerPlatformRoutes,
+} from './platformStore';
 
 dotenv.config();
 
@@ -75,9 +81,10 @@ interface EncryptedCustodyEntry {
 }
 
 interface DevAccountEntry {
-  code: 'FAMAD01' | 'FAMER01' | 'SPON01' | 'COMP01';
+  code: 'FAMAD01' | 'FAMER01' | 'SPON01' | 'COMP01' | 'WORK01' | 'SUPV01';
   userId: string;
   role: UserRole;
+  sponsorType?: SponsorType;
   displayName: string;
   email: string;
   passwordHash: string;
@@ -155,6 +162,15 @@ function createInitialDevAccounts(): Record<string, DevAccountEntry> {
       passwordHash: initialHash,
       mustChangePasswordOnFirstLogin: true,
     },
+    WORK01: {
+      code: 'WORK01',
+      userId: 'dev_worker_work01',
+      role: 'Worker',
+      displayName: 'Musa Danjuma (WORK01)',
+      email: 'worker.work01@farmfund.ng',
+      passwordHash: initialHash,
+      mustChangePasswordOnFirstLogin: true,
+    },
     FAMER01: {
       code: 'FAMER01',
       userId: 'dev_farmer_famer01',
@@ -164,10 +180,20 @@ function createInitialDevAccounts(): Record<string, DevAccountEntry> {
       passwordHash: initialHash,
       mustChangePasswordOnFirstLogin: true,
     },
+    SUPV01: {
+      code: 'SUPV01',
+      userId: 'dev_supervisor_supv01',
+      role: 'Supervisor',
+      displayName: 'Ibrahim Bello · Field Supervisor (SUPV01)',
+      email: 'supervisor.supv01@farmfund.ng',
+      passwordHash: initialHash,
+      mustChangePasswordOnFirstLogin: true,
+    },
     SPON01: {
       code: 'SPON01',
       userId: 'dev_sponsor_spon01',
       role: 'Sponsor',
+      sponsorType: 'individual',
       displayName: 'Chukwuma Okafor · Individual Sponsor (SPON01)',
       email: 'sponsor.spon01@farmfund.ng',
       passwordHash: initialHash,
@@ -176,7 +202,8 @@ function createInitialDevAccounts(): Record<string, DevAccountEntry> {
     COMP01: {
       code: 'COMP01',
       userId: 'dev_company_comp01',
-      role: 'Company',
+      role: 'Sponsor',
+      sponsorType: 'organisation',
       displayName: 'AgroVanguard Capital NG Ltd (COMP01)',
       email: 'treasury.comp01@agrovanguard.ng',
       passwordHash: initialHash,
@@ -190,6 +217,12 @@ function loadVaultState(): ServerVaultState {
     if (fs.existsSync(VAULT_FILE)) {
       const raw = fs.readFileSync(VAULT_FILE, 'utf8');
       const parsed = JSON.parse(raw) as Partial<ServerVaultState>;
+      const initialDevs = createInitialDevAccounts();
+      const mergedDevs = { ...initialDevs, ...(parsed.devAccounts || {}) };
+      if (mergedDevs.COMP01 && mergedDevs.COMP01.role !== 'Sponsor') {
+        mergedDevs.COMP01.role = 'Sponsor';
+        mergedDevs.COMP01.sponsorType = 'organisation';
+      }
       return {
         custodyEntries: parsed.custodyEntries || {},
         wallets: parsed.wallets || {},
@@ -199,7 +232,7 @@ function loadVaultState(): ServerVaultState {
         activations: parsed.activations || [],
         auditLogs: parsed.auditLogs || [],
         idempotencyKeys: parsed.idempotencyKeys || {},
-        devAccounts: parsed.devAccounts || createInitialDevAccounts(),
+        devAccounts: mergedDevs,
         escrowVaultPublicKey: parsed.escrowVaultPublicKey,
         escrowVaultEncryptedSecret: parsed.escrowVaultEncryptedSecret,
       };
@@ -378,7 +411,8 @@ async function verifyTransactionOnHorizon(txHash: string): Promise<{
 
 async function startServer() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '6mb' }));
+  registerPlatformRoutes(app);
 
   // ==========================================================================
   // 1. DEVELOPMENT ACCOUNT CODE AUTHENTICATION & FORCED PASSWORD CHANGE
@@ -394,7 +428,7 @@ async function startServer() {
     if (!devAccount) {
       res.status(404).json({
         error:
-          'Unknown development account code. Supported codes: FAMAD01, FAMER01, SPON01, COMP01.',
+          'Unknown development account code. Supported codes: FAMAD01, WORK01, FAMER01, SUPV01, SPON01, COMP01.',
       });
       return;
     }
@@ -420,6 +454,16 @@ async function startServer() {
       return;
     }
 
+    const platformUser = ensureDevUserRecord({
+      userId: devAccount.userId,
+      role: devAccount.role,
+      sponsorType: devAccount.sponsorType,
+      displayName: devAccount.displayName,
+      email: devAccount.email,
+      accountCode: devAccount.code,
+      mustChangePasswordOnFirstLogin: devAccount.mustChangePasswordOnFirstLogin,
+    });
+
     appendAuditLog({
       actorId: devAccount.userId,
       action: `DEV_LOGIN_SUCCESS (${normalizedCode})`,
@@ -435,9 +479,11 @@ async function startServer() {
       accountCode: devAccount.code,
       userId: devAccount.userId,
       role: devAccount.role,
+      sponsorType: devAccount.sponsorType,
       displayName: devAccount.displayName,
       email: devAccount.email,
       mustChangePasswordOnFirstLogin: devAccount.mustChangePasswordOnFirstLogin,
+      user: platformUser,
     });
   });
 
@@ -482,9 +528,10 @@ async function startServer() {
   // 2. IDEMPOTENT EMBEDDED STELLAR WALLET PROVISIONING
   // ==========================================================================
   app.post('/api/stellar/wallet/provision', async (req: Request, res: Response) => {
-    const { userId, role, displayName, organisationName } = req.body as {
+    const { userId, role, sponsorType, displayName, organisationName } = req.body as {
       userId?: string;
       role?: UserRole;
+      sponsorType?: SponsorType;
       displayName?: string;
       organisationName?: string;
     };
@@ -493,6 +540,10 @@ async function startServer() {
       res.status(400).json({ error: 'userId and role are required to provision a wallet.' });
       return;
     }
+
+    const authoritativeRole = platformState.users[userId]?.role || role;
+    const authoritativeSponsorType =
+      platformState.users[userId]?.sponsorType || sponsorType;
 
     // Idempotent check: never create duplicate wallets for the same user
     const existing = vaultState.wallets[userId];
@@ -510,6 +561,8 @@ async function startServer() {
     const encrypted = encryptSecret(keypair.secret());
     const nowIso = new Date().toISOString();
     const walletId = `ff_wal_${userId.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 24)}`;
+    const isOrgSponsor =
+      authoritativeRole === 'Sponsor' && authoritativeSponsorType === 'organisation';
 
     vaultState.custodyEntries[userId] = {
       walletId,
@@ -522,26 +575,30 @@ async function startServer() {
     const newWallet: UserWallet = {
       walletId,
       userId,
-      role,
+      role: authoritativeRole,
+      sponsorType: authoritativeSponsorType,
       displayName: displayName || userId,
-      organisationName:
-        role === 'Company' ? organisationName || displayName || 'Partner Organisation' : undefined,
-      authorisedRepresentatives:
-        role === 'Company'
-          ? buildDefaultCompanyRepresentatives(displayName || 'Treasury Director')
-          : undefined,
-      approvalPolicy:
-        role === 'Company'
-          ? 'Role-based organisation signatory approval (no shared private keys)'
+      organisationName: isOrgSponsor
+        ? organisationName || displayName || 'Partner Organisation'
+        : undefined,
+      authorisedRepresentatives: isOrgSponsor
+        ? buildDefaultCompanyRepresentatives(displayName || 'Treasury Director')
+        : undefined,
+      approvalPolicy: isOrgSponsor
+        ? 'Role-based organisation signatory approval (no shared private keys)'
+        : authoritativeRole === 'Supervisor' || authoritativeRole === 'Admin'
+          ? 'Read-only monitoring permissions (no autonomous wallet fund transfers)'
           : 'Authenticated user session + server-vault signing',
       walletAddress: publicKey,
       provider: 'Stellar SDK Embedded Wallet (@stellar/stellar-sdk)',
-      custodyModel:
-        role === 'Company'
-          ? 'Organisation Vault Custody (AES-256-GCM Server Key Isolation · Per-Representative RBAC)'
-          : 'Managed Embedded Custody (AES-256-GCM Server Vault · Zero Plaintext Key Exposure)',
+      custodyModel: isOrgSponsor
+        ? 'Organisation Vault Custody (AES-256-GCM Server Key Isolation · Per-Representative RBAC)'
+        : 'Managed Embedded Custody (AES-256-GCM Server Vault · Zero Plaintext Key Exposure)',
       network: STELLAR_NETWORK,
-      status: 'Activation Required',
+      status:
+        authoritativeRole === 'Admin' || authoritativeRole === 'Supervisor'
+          ? 'Restricted'
+          : 'Activation Required',
       usdcBalance: '0.00',
       availableUsdcBalance: '0.00',
       pendingEscrowUsdcBalance: '0.00',
@@ -628,10 +685,10 @@ async function startServer() {
       return;
     }
 
-    if (wallet.role === 'Admin') {
+    if (wallet.role === 'Admin' || wallet.role === 'Supervisor') {
       res.status(403).json({
         error:
-          'Administrator accounts have restricted monitoring permissions and cannot activate commercial payment wallets.',
+          'Supervisors and Administrators have restricted read-only monitoring permissions and cannot activate commercial payment wallets.',
       });
       return;
     }
@@ -810,9 +867,10 @@ async function startServer() {
       return;
     }
 
-    if (wallet.role === 'Admin') {
+    if (wallet.role === 'Admin' || wallet.role === 'Supervisor') {
       res.status(403).json({
-        error: 'Administrators have restricted monitoring permissions and cannot send funds.',
+        error:
+          'Supervisors and Administrators have restricted monitoring permissions and cannot send or withdraw wallet funds.',
       });
       return;
     }

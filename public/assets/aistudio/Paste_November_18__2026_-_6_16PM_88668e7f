@@ -1,0 +1,972 @@
+# FARMFUND — COMPLETE APP REDESIGN, FOUR-ROLE REGISTRATION AND SEPARATE DASHBOARDS
+
+You are continuing development of the existing FarmFund application.
+
+Your task is to restructure and improve the entire existing application around four distinct user roles:
+
+1. Worker
+2. Farmer
+3. Supervisor
+4. Sponsor
+
+This is a major application-wide UI, UX, navigation, registration and dashboard restructuring task.
+
+IMPORTANT: Do not create a new application or replace the existing project. Work directly inside the current FarmFund codebase.
+
+Preserve the existing technology stack, Firebase integration, database, authentication, Stellar wallet infrastructure, payment services, messaging functionality and other working integrations.
+
+Do not unnecessarily remove existing working features. Reorganise them according to the new role structure and requirements below.
+
+The final application must feel like one connected agricultural platform with four completely separate user experiences.
+
+# 1. NEW FARMFUND HOMEPAGE
+
+Redesign the main public homepage so that visitors immediately understand what FarmFund does and how to register.
+
+The homepage must clearly introduce FarmFund as a platform connecting:
+- Farmers who need agricultural support.
+- Workers looking for available farm jobs.
+- Sponsors who want to support or hire farmers and workers.
+- Supervisors who oversee agricultural work and agreements.
+
+Use a professional agricultural technology design.
+
+Maintain the existing FarmFund branding:
+- Primary green: #159B42
+- Dark green: #116B32
+- Light green: #EAF6EC
+- Background: #F5F8F3
+- White: #FFFFFF
+- Main text: #243629
+- Secondary text: #718071
+
+Use realistic agricultural imagery, modern typography, rounded cards, subtle shadows, attractive illustrations where appropriate and responsive layouts.
+
+## Homepage sections
+
+### A. Hero section
+
+Display a clear headline:
+
+"Connecting Farmers, Workers and Sponsors to Grow Agriculture."
+
+Supporting description:
+
+"FarmFund brings farmers, skilled workers, supervisors and sponsors together to make agricultural support, farm employment and project supervision easier, safer and more transparent."
+
+Include two main actions:
+- Get Started
+- Sign In
+
+### B. How FarmFund works
+
+Explain the four roles with four visually distinct cards.
+
+### C. Choose how to join FarmFund
+
+This must be one of the most prominent sections on the homepage.
+
+Display four registration cards:
+
+1. WORKER
+   - Description: Find available farm jobs, apply for work and receive payments for completed tasks.
+   - Button: Register as a Worker.
+
+2. FARMER
+   - Description: Connect with sponsors, request agricultural support and access workers for your farm.
+   - Button: Register as a Farmer.
+
+3. SUPERVISOR
+   - Description: Oversee agricultural projects and monitor work agreements between sponsors, farmers and workers.
+   - Button: Register as a Supervisor.
+
+4. SPONSOR
+   - Description: Discover farmers and workers, provide support, hire people and monitor agricultural projects.
+   - Button: Register as a Sponsor.
+
+Each button must open the correct registration form.
+
+Do not make users select their role after entering a generic registration form. The role must be selected clearly before registration begins.
+
+### D. Other homepage sections
+
+Include:
+- About FarmFund.
+- How the platform works.
+- Why use FarmFund.
+- Agricultural opportunities.
+- How sponsors support farmers.
+- How workers find jobs.
+- How supervisors monitor projects.
+- Contact and support.
+- Footer with privacy policy, terms and help links.
+
+Do not display fake users, fake job counts, fake funding statistics or invented success stories.
+
+If there is no real data, display useful empty states or hide statistics that have no verified data.
+
+# 2. ROLE-SPECIFIC REGISTRATION
+
+Create four separate registration journeys.
+
+Every user must have one primary account role.
+
+Users must not be able to change their role themselves after registration.
+
+## A. Worker registration
+
+Collect:
+- Full name.
+- Email address.
+- Password.
+- Phone number with country code.
+- Country.
+- State.
+- Local government area.
+- Town or city.
+- Residential location.
+- Profile picture.
+- Government-issued ID document for verification.
+- Skills and experience.
+- Types of farm work they can perform.
+- Expected wage or payment preference.
+- Availability.
+- Short personal description.
+- Optional supporting documents.
+
+Worker job categories include:
+- Land clearing.
+- Land preparation.
+- Planting.
+- Weeding.
+- Fertiliser application.
+- Irrigation.
+- Harvesting.
+- Sorting and packaging.
+- Loading and transportation.
+- Livestock care.
+- General farm labour.
+- Tractor and machinery operation.
+- Other agricultural work.
+
+After registration:
+- Create the Firebase user account.
+- Assign the worker role securely on the backend.
+- Save the worker profile.
+- Start the verification process.
+- Redirect the user to the Worker Dashboard.
+
+## B. Farmer registration
+
+Collect:
+- Full name.
+- Email address.
+- Password.
+- Phone number with country code.
+- Country.
+- State.
+- Local government area.
+- Town or farm location.
+- Profile picture.
+- Government-issued ID document.
+- Farm name.
+- Farm location.
+- Farming type.
+- Crops or livestock.
+- Farm size.
+- Years of experience.
+- Farm description.
+- Agricultural support needed.
+- Optional farm photographs and documents.
+
+After registration:
+- Create the Firebase user.
+- Assign the farmer role.
+- Save the farmer profile.
+- Start verification.
+- Redirect to the Farmer Dashboard.
+
+## C. Supervisor registration
+
+Collect:
+- Full name.
+- Email address.
+- Password.
+- Phone number.
+- Country.
+- State.
+- Local government area.
+- Residential location.
+- Profile picture.
+- Government-issued ID document.
+- Professional qualifications.
+- Agricultural experience.
+- Areas of specialisation.
+- Previous supervision experience.
+- Certifications or supporting documents.
+- Short professional description.
+- Availability and service locations.
+
+Possible specialisations:
+- Crop production.
+- Livestock management.
+- Farm operations.
+- Agricultural project management.
+- Harvest supervision.
+- Farm labour supervision.
+- Quality control.
+- Agricultural logistics.
+- Irrigation management.
+- General agricultural supervision.
+
+After registration:
+- Create the Firebase user.
+- Assign the supervisor role.
+- Save the supervisor profile.
+- Set verification status to Pending Verification.
+- Redirect to the Supervisor Dashboard.
+
+A supervisor must not automatically receive administrator privileges.
+
+## D. Sponsor registration
+
+Combine individual sponsors and company/organisation sponsors under the Sponsor role.
+
+Provide a sponsor type selection inside the sponsor registration process:
+
+- Individual Sponsor.
+- Company/Organisation Sponsor.
+
+For individual sponsors, collect:
+- Full name.
+- Email address.
+- Password.
+- Phone number.
+- Country and location.
+- Profile picture.
+- Government-issued ID.
+- Personal description.
+- Areas of agricultural interest.
+- Types of support they provide.
+- Social media links, where applicable.
+
+For company/organisation sponsors, collect:
+- Organisation or company name.
+- Official email address.
+- Password.
+- Phone number.
+- Office address.
+- Country and location.
+- Company logo.
+- Website.
+- Organisation type.
+- Representative's name.
+- Representative's position.
+- Representative's identification document.
+- Organisation registration documents.
+- Description.
+- Agricultural support categories.
+- Types of support available.
+
+After registration:
+- Create the Firebase user.
+- Assign the sponsor role.
+- Store the sponsor type as individual or organisation.
+- Save the appropriate sponsor profile.
+- Set verification status to Pending Verification.
+- Redirect to the Sponsor Dashboard.
+
+# 3. SEPARATE DASHBOARDS AND NAVIGATION
+
+Each role must have a completely separate dashboard.
+
+The dashboard must display only the features belonging to the logged-in user's role.
+
+Do not show workers farmer-only features, farmers worker-only features, or supervisors sponsor-only controls.
+
+Use role-based navigation, backend authorization and protected routes.
+
+All dashboards must be responsive and maintain FarmFund's green-and-white design.
+
+# 4. WORKER DASHBOARD
+
+The Worker Dashboard must contain only three main navigation sections:
+
+### A. Dashboard
+
+This is the worker's main workspace.
+
+Display:
+- Welcome message.
+- Worker profile verification status.
+- Available farm jobs.
+- Recently published jobs.
+- Job categories.
+- Job locations.
+- Payment or wage information.
+- Application status.
+- Accepted jobs.
+- Work history.
+
+Workers must be able to:
+- Browse available farm jobs.
+- Search jobs by location.
+- Filter by work category.
+- Filter by payment.
+- View job descriptions.
+- View required skills.
+- View number of workers needed.
+- View start dates and duration.
+- View the farmer who posted the job.
+- Submit an application or request to work.
+- Include an application message.
+- Track application status.
+- Withdraw an application where permitted.
+
+Workers must NOT be able to create farm jobs or accept themselves into jobs.
+
+The farmer or authorised sponsor must review applications and make the selection.
+
+### B. Messages
+
+Create a messaging interface where workers can communicate with:
+- Farmers.
+- Sponsors.
+- Assigned supervisors.
+
+Workers must be able to:
+- Send and receive messages.
+- View conversations.
+- See message timestamps.
+- See unread message counts.
+- Receive notifications for new messages.
+- Share permitted files or images.
+
+Only authorised conversation participants may access messages.
+
+### C. Profile
+
+Create a complete editable worker profile.
+
+Workers can update:
+- Profile picture.
+- Full name, subject to verification rules.
+- Phone number.
+- Location.
+- Skills.
+- Experience.
+- Work categories.
+- Availability.
+- Expected wage.
+- Description.
+- Supporting documents.
+
+Display a clear profile verification status:
+
+- Pending Verification.
+- Verified.
+- Rejected.
+- More Information Required.
+
+The profile must clearly show that submitted details are awaiting verification until an authorised reviewer approves them.
+
+Do not automatically mark profiles verified.
+
+# 5. FARMER DASHBOARD
+
+The Farmer Dashboard must contain only three main navigation sections:
+
+### A. Dashboard
+
+This is the farmer's main workspace.
+
+Display:
+- Welcome message.
+- Farmer profile verification status.
+- List of available sponsors.
+- Sponsor profile pictures.
+- Sponsor names.
+- Individual or organisation labels.
+- Sponsor specialisations.
+- Agricultural interests.
+- Types of support they provide.
+- Sponsor locations.
+- Sponsor descriptions.
+- Available sponsor profiles.
+
+Farmers must be able to:
+- Discover sponsors.
+- Search sponsors.
+- Filter by agricultural specialisation.
+- Filter by location.
+- View sponsor profiles.
+- View the support categories they provide.
+- Send support requests to sponsors.
+- Explain what assistance they need.
+- Attach relevant farm documents or photographs.
+- Track requests sent.
+- View accepted, declined or pending requests.
+
+Support requests may involve:
+- Financial support.
+- Seeds and fertiliser.
+- Agricultural equipment.
+- Irrigation.
+- Farm materials.
+- Other agricultural support.
+
+Display the applicable agreement conditions before the farmer submits a request.
+
+Preserve the existing 30% sponsor produce/proceeds arrangement only where the parties explicitly agree to it.
+
+The basis must be clearly stated as either eligible produce or eligible farm proceeds, with calculation and verification terms. Never apply it automatically.
+
+Farmers must also be able to receive applications from workers when they have published available jobs through the existing worker-job workflow.
+
+Keep worker recruitment and sponsor support requests clearly separated.
+
+### B. Messages
+
+Farmers can communicate with:
+- Sponsors.
+- Workers they hire or are considering.
+- Assigned supervisors.
+
+Implement:
+- Real-time conversations.
+- Message history.
+- Unread message counts.
+- Timestamps.
+- Notifications.
+- Permitted file and image sharing.
+
+### C. Profile
+
+Farmers can edit:
+- Profile picture.
+- Full name, subject to verification rules.
+- Phone number.
+- Location.
+- Farm name.
+- Farm location.
+- Farming type.
+- Crops or livestock.
+- Farm size.
+- Experience.
+- Description.
+- Farm photographs.
+- Supporting documents.
+
+Display Pending Verification until the profile is reviewed and approved.
+
+# 6. SUPERVISOR DASHBOARD
+
+The Supervisor Dashboard must contain only three main navigation sections:
+
+### A. Dashboard
+
+This is the supervisor's project monitoring workspace.
+
+Display a list of agricultural projects and work agreements requiring supervision.
+
+These can include:
+
+1. Sponsor and worker agreements.
+2. Sponsor and farmer agreements.
+3. Farmer and worker agreements where supervision has been requested or assigned.
+
+The supervisor should see work only when:
+- The relevant agreement has been accepted.
+- The parties have agreed that supervision is required.
+- The supervisor has been assigned or has accepted the supervision invitation.
+
+Do not automatically expose every private agreement to every supervisor.
+
+Each supervision listing should display:
+- Project title.
+- Farm or project location.
+- Farmer details.
+- Sponsor details.
+- Worker details, where relevant.
+- Agreement type.
+- Agreed work.
+- Expected start date.
+- Expected completion date.
+- Supervision requirements.
+- Current project status.
+- Assigned supervisor.
+- Relevant progress updates.
+
+Supervisors must be able to:
+- View assigned projects.
+- Accept or decline supervision invitations.
+- Review the relevant agreement and supervision instructions.
+- Communicate with involved parties.
+- Record project progress.
+- Upload progress photographs and evidence.
+- Submit inspection reports.
+- Report delays or problems.
+- Report suspected misuse of resources.
+- Record completion observations.
+- Recommend that a project be marked completed.
+
+Supervisors must not:
+- Secretly change agreement terms.
+- Change agreed wages.
+- Transfer funds.
+- Withdraw money from user wallets.
+- Approve their own verification.
+- Modify confirmed blockchain transactions.
+- Release escrow funds without the required independent authorization.
+
+A supervisor's completion report is evidence for the parties or authorised platform reviewers. It must not automatically trigger a payment unless the agreement explicitly defines that authorized approval process.
+
+### B. Messages
+
+Supervisors can communicate with:
+- Sponsors.
+- Farmers.
+- Workers.
+- Other assigned project participants.
+
+Messages must be restricted to authorised participants.
+
+### C. Profile
+
+Supervisors can edit:
+- Profile picture.
+- Full name, subject to verification.
+- Phone number.
+- Location.
+- Professional qualifications.
+- Agricultural specialisation.
+- Experience.
+- Certifications.
+- Description.
+- Supporting documents.
+- Availability.
+
+Display Pending Verification until an authorised reviewer completes the verification process.
+
+# 7. SPONSOR DASHBOARD
+
+The Sponsor Dashboard must contain only three main navigation sections:
+
+### A. Dashboard
+
+This is the sponsor's main management workspace.
+
+Display:
+- Welcome message.
+- Sponsor verification status.
+- Available farmers.
+- Farmer specialisations.
+- Farmer locations.
+- Farming types.
+- Crops and farm details.
+- Published assistance requests.
+- Available worker profiles and job applications where relevant.
+- Requests received.
+- Requests sent.
+- Accepted agreements.
+- Active agricultural projects.
+- Assigned supervisors.
+- Recent project updates.
+
+Sponsors must be able to discover farmers and review their profiles.
+
+Sponsors must be able to discover workers and review relevant applications when hiring.
+
+Sponsors must be able to:
+
+**Send requests**
+- Send support offers to farmers.
+- Propose agricultural support.
+- Specify funding or material contributions.
+- Propose conditions.
+- Request additional information.
+- Propose hiring arrangements with workers where applicable.
+
+**Receive and accept requests**
+- View requests from farmers.
+- View worker applications or work requests relevant to jobs they have published.
+- Review requests.
+- Accept requests.
+- Decline requests.
+- Request further information.
+- Propose revised terms where permitted.
+
+**Manage agreements**
+- Review accepted support agreements.
+- View accepted worker hiring agreements where they are the hiring party.
+- See assigned supervisors.
+- Request supervision for eligible projects.
+- Invite or select a supervisor where the platform's assignment process permits.
+- Track work progress.
+- View inspection reports.
+- Communicate with involved parties.
+- Review completion evidence.
+
+All agreements must record the correct parties and their explicit acceptance.
+
+Do not allow sponsors to modify an already accepted agreement unilaterally.
+
+### B. Messages
+
+Sponsors can communicate with:
+- Farmers they support or are considering.
+- Workers they hire or are considering.
+- Assigned supervisors.
+
+Implement real-time messaging, conversation lists, timestamps, unread counts, notifications and permitted file sharing.
+
+### C. Profile
+
+Sponsors can edit their profile.
+
+Individual sponsors can update:
+- Profile picture.
+- Name, subject to verification.
+- Phone number.
+- Location.
+- Personal description.
+- Support categories.
+- Areas of interest.
+- Social media links.
+
+Company/organisation sponsors can update:
+- Company name, subject to verification.
+- Logo.
+- Contact details.
+- Office address.
+- Website.
+- Organisation type.
+- Representative details.
+- Description.
+- Supporting documents.
+
+Display Pending Verification until approved.
+
+# 8. IMPORTANT REQUEST AND AGREEMENT WORKFLOWS
+
+Connect all four roles through clear, controlled workflows.
+
+### Farmer ↔ Sponsor
+
+- Farmer discovers sponsor.
+- Farmer sends a support request.
+- Sponsor receives the request.
+- Sponsor reviews and responds.
+- Parties agree on the terms.
+- Both accept the agreement.
+- The project becomes eligible for supervision if required.
+- Assigned supervisor monitors the project.
+- Payments and support fulfilment follow the agreement.
+
+### Worker ↔ Farmer or Sponsor
+
+- Farmer or authorised sponsor publishes a job.
+- Worker discovers the job.
+- Worker submits an application.
+- Job owner reviews the application.
+- Job owner accepts or declines.
+- Accepted worker and hiring party agree on the work and wage.
+- Supervision can be requested.
+- Work is carried out.
+- Completion is confirmed under the agreement.
+- Worker payment is processed according to the agreed payment arrangement.
+
+### Supervisor assignment
+
+- A sponsor, farmer or other authorised agreement party requests supervision.
+- An eligible supervisor is selected or invited.
+- Supervisor reviews the project information and assignment terms.
+- Supervisor accepts or declines.
+- Accepted supervision assignment appears in the Supervisor Dashboard.
+- Supervisor submits progress reports and completion observations.
+- Relevant parties can review the reports.
+
+A supervisor must never gain access to a project merely because they have registered on FarmFund.
+
+# 9. EMBEDDED STELLAR WALLET INTEGRATION
+
+Preserve the existing FarmFund embedded Stellar wallet implementation and its planned functionality.
+
+Do not remove or break:
+- Wallet provisioning.
+- Wallet ownership mapping.
+- USDC balances.
+- Receiving payments.
+- Sending payments.
+- Transaction history.
+- QR-code receiving.
+- Stellar Testnet integration.
+- Soroban escrow.
+- Payment verification.
+- Wallet security and recovery.
+
+Make wallet access consistent with each role's permissions.
+
+The Worker can receive wages.
+
+The Farmer can receive agricultural support and make worker wage payments.
+
+The Sponsor can fund agreements and manage eligible payments.
+
+The Supervisor can view authorised project/payment status where necessary but must not control user wallets or independently transfer funds.
+
+Preserve the separation between:
+- Sponsor support agreements.
+- Worker wage agreements.
+- Sponsor 30% produce/proceeds arrangements.
+
+Never deduct sponsor shares from worker wages.
+
+Keep Testnet as the initial environment unless production readiness has been explicitly established.
+
+# 10. VERIFICATION SYSTEM
+
+Every role must have a profile verification workflow.
+
+Initial status for new accounts:
+
+PENDING VERIFICATION.
+
+The user must still be able to access permitted parts of the dashboard while verification is pending.
+
+Clearly show:
+- Pending Verification.
+- Verified.
+- Rejected.
+- More Information Required.
+
+An authorised administrator or verification reviewer must be responsible for approving accounts.
+
+Users can edit their profiles, but changes to verified identity information must trigger re-verification where necessary.
+
+Never let a user approve their own verification.
+
+Do not claim that an ID has been verified simply because a document was uploaded.
+
+# 11. ADMINISTRATOR AND INTERNAL MANAGEMENT
+
+Preserve the existing administrator functionality as a separate protected administrative role.
+
+Admin must not appear as a public registration choice.
+
+The four public roles are:
+- Worker.
+- Farmer.
+- Supervisor.
+- Sponsor.
+
+Administrators retain their restricted management interface for:
+- User management.
+- Role management.
+- Verification.
+- Farmer records.
+- Worker records.
+- Sponsor records.
+- Supervisor records.
+- Support requests.
+- Worker jobs.
+- Applications.
+- Agreements.
+- Supervision assignments.
+- Payments and transaction monitoring.
+- Disputes and reports.
+- Platform settings.
+- Audit logs.
+
+Do not give supervisors administrator privileges.
+
+Do not allow administrators to secretly alter confirmed blockchain transactions or access users' private wallet signing keys.
+
+# 12. DATABASE AND BACKEND ADJUSTMENTS
+
+Inspect the existing Firebase database and reuse working collections where appropriate.
+
+Ensure the backend supports the four roles and their relationships.
+
+Maintain or create the following logical data structures:
+
+- users
+- farmerProfiles
+- workerProfiles
+- supervisorProfiles
+- sponsorProfiles
+- organisations
+- assistanceRequests
+- sponsorOffers
+- workerRequests
+- workerApplications
+- supportAgreements
+- workerAgreements
+- supervisionRequests
+- supervisionAssignments
+- supervisionReports
+- conversations
+- messages
+- notifications
+- verificationApplications
+- supportUpdates
+- userWallets
+- walletTransactions
+- workerPayments
+- disputes
+- reviews
+- adminAuditLogs
+- platformSettings
+
+Every relevant record must include:
+- Unique ID.
+- Created timestamp.
+- Updated timestamp.
+- Owner or creator UID.
+- Current status.
+- Appropriate related user/agreement IDs.
+
+Use server-side role validation.
+
+Use strict Firestore security rules.
+
+Do not allow users to access another role's private records without permission.
+
+Keep the existing operational database empty where no real data exists. Do not create fake farmers, workers, sponsors, supervisors, jobs, transactions, messages or verification records.
+
+# 13. NAVIGATION AND USER EXPERIENCE RULES
+
+The public homepage should provide the four registration choices.
+
+After login, route users to the correct dashboard automatically.
+
+Worker sees:
+- Dashboard.
+- Messages.
+- Profile.
+
+Farmer sees:
+- Dashboard.
+- Messages.
+- Profile.
+
+Supervisor sees:
+- Dashboard.
+- Messages.
+- Profile.
+
+Sponsor sees:
+- Dashboard.
+- Messages.
+- Profile.
+
+Do not expose the other roles' dashboard navigation to a logged-in user.
+
+Additional pages or details may open inside these sections as appropriate, such as job details, applications, project reports, wallet details and agreement views. They should not create unnecessary extra primary navigation items.
+
+Implement:
+- Mobile-friendly sidebar or bottom navigation.
+- Clear active navigation state.
+- Notification indicators.
+- Loading states.
+- Error states.
+- Empty states.
+- Confirmation dialogs for important actions.
+- Accessible form validation.
+- Clear success and failure notifications.
+
+Use subtle 150–250ms transitions for hover, focus and tap interactions.
+
+Do not hide important information behind hover effects.
+
+# 14. INITIAL DATA AND DEVELOPMENT ACCOUNTS
+
+Preserve the existing temporary development account setup securely where possible.
+
+Review the old role-to-account mappings because the role structure has changed.
+
+Ensure:
+- Existing Farmer account maps to Farmer.
+- Existing Sponsor account maps to Sponsor.
+- Existing Worker account maps to Worker.
+- A Supervisor account is provisioned through a protected development setup process if needed.
+- Existing administrator account remains Admin.
+
+Do not expose temporary passwords in frontend source code.
+
+Keep forced first-login password change.
+
+Do not create fake operational data.
+
+# 15. REQUIRED END-TO-END TESTING
+
+Test all four registration flows.
+
+Test that:
+- Worker registration leads to Worker Dashboard.
+- Farmer registration leads to Farmer Dashboard.
+- Supervisor registration leads to Supervisor Dashboard.
+- Sponsor registration leads to Sponsor Dashboard.
+- Users cannot change their role themselves.
+- Users cannot access another role's private dashboard.
+- All users can edit their permitted profile fields.
+- Profile changes persist after logout and login.
+- New profiles remain Pending Verification.
+- Only authorised reviewers can approve verification.
+- Workers can discover jobs and apply.
+- Farmers can discover sponsors and send support requests.
+- Sponsors can send and receive requests.
+- Supervisors only see assigned or accepted supervision work.
+- Sponsors, farmers and workers can message authorised participants.
+- Supervisor reports are visible to the appropriate project parties.
+- Wallet features continue working for eligible roles.
+- Worker payments remain separate from sponsor support agreements.
+- Existing Stellar functionality is not broken.
+- Admin access remains protected.
+- All dashboards display real data and correct empty states.
+
+Fix all errors discovered during testing.
+
+# 16. IMPLEMENTATION INSTRUCTIONS
+
+Work in the following order:
+
+PHASE 1: Inspect the existing codebase, identify all current pages, components, routes, authentication logic, Firebase collections, wallet integrations and working features.
+
+PHASE 2: Rebuild the public homepage and implement the four distinct registration journeys.
+
+PHASE 3: Implement role-based authentication, protected routes, role-specific layouts and navigation.
+
+PHASE 4: Implement the Worker, Farmer, Supervisor and Sponsor dashboards according to the exact requirements above.
+
+PHASE 5: Connect the request, application, agreement and supervision workflows.
+
+PHASE 6: Connect messaging, notifications and editable profiles.
+
+PHASE 7: Preserve and test embedded Stellar wallets, payments and escrow.
+
+PHASE 8: Update Firestore security rules, backend permissions, tests and documentation.
+
+Do not stop after designing the homepage or dashboard screens. Implement the real functionality.
+
+Do not use static sample data to make the application appear functional.
+
+Do not delete working features simply because the navigation is changing. Move them into the appropriate role-specific dashboard or detail views.
+
+At completion, provide a clear report explaining:
+1. What was changed.
+2. What was preserved.
+3. Which registration flows work.
+4. Which dashboards work.
+5. Which request and supervision workflows work.
+6. Which messaging and profile features work.
+7. Whether Stellar wallet functionality remains operational.
+8. Which backend integrations still require configuration.
+9. Which tests passed and failed.
+10. Any remaining issues.
+
+FINAL GOAL:
+
+FarmFund must become a clean, fully connected agricultural platform with four clearly separated experiences: Worker, Farmer, Supervisor and Sponsor.
+
+Each user must register through their correct role, access only their relevant dashboard, communicate with the right people, manage their own profile and participate in the appropriate agricultural workflows.
