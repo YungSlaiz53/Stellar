@@ -597,7 +597,8 @@ export interface PlatformNotification {
     | 'Agreement'
     | 'Supervision'
     | 'Message'
-    | 'Wallet';
+    | 'Wallet'
+    | 'Acceptance Fee';
   relatedId?: string;
   read: boolean;
   createdAt: string;
@@ -645,7 +646,11 @@ export interface ReviewRecord {
 
 export interface DisputeRecord {
   id: string;
-  category: 'Sponsor Support Agreement' | 'Worker Wage Payment' | 'Supervision Report';
+  category:
+    | 'Sponsor Support Agreement'
+    | 'Worker Wage Payment'
+    | 'Supervision Report'
+    | 'Acceptance Fee / Absconding';
   referenceId: string;
   title: string;
   raisedById: string;
@@ -742,7 +747,48 @@ export type WalletTransactionType =
   | 'Sponsor Escrow Release'
   | 'Sponsor Escrow Refund'
   | 'Worker Wage Escrow Deposit'
-  | 'Worker Wage Release';
+  | 'Worker Wage Release'
+  | 'Acceptance Fee Deposit'
+  | 'Acceptance Fee Refund'
+  | 'Acceptance Fee Forfeit Payout'
+  | 'Farm Sponsorship Disbursement'
+  | 'Post-Work Farmer Settlement'
+  | 'Post-Work Worker Wage USDC'
+  | 'Supervision Fee USDC'
+  | 'Testnet XLM → Circle USDC Swap';
+
+export type AcceptanceFeeStatus =
+  | 'Pending Deposit'
+  | 'Locked in Escrow'
+  | 'Refunded'
+  | 'Forfeited (Absconded)'
+  | 'Disputed';
+
+export interface AcceptanceFeeRecord {
+  id: string;
+  ownerId: string;
+  obligorId: string;
+  obligorName: string;
+  obligorRole: 'Worker' | 'Farmer';
+  beneficiaryId: string;
+  beneficiaryName: string;
+  agreementType: 'WorkerHiring' | 'SponsorSupport';
+  agreementId: string;
+  agreementTitle: string;
+  agreedPrincipalNaira: number;
+  feeAmountNaira: number;
+  feeAmountUsdc: number;
+  assetCode: 'USDC';
+  status: AcceptanceFeeStatus;
+  escrowReference: string;
+  transactionHash: string;
+  settlementHash?: string;
+  abscondedReason?: string;
+  reportedById?: string;
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
 
 export interface WalletTransaction {
   transactionId: string;

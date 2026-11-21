@@ -497,6 +497,26 @@
         "timestamp": { "type": "string", "maxLength": 60 }
       },
       "required": ["logId", "actorId", "action", "timestamp"]
+    },
+    "AcceptanceFeeRecord": {
+      "title": "AcceptanceFeeRecord",
+      "description": "Anti-absconding USDC commitment bond locked by Workers or Farmers upon agreement acceptance.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "obligorId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "obligorRole": { "type": "string", "enum": ["Worker", "Farmer"], "maxLength": 20 },
+        "beneficiaryId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "agreementType": { "type": "string", "enum": ["WorkerHiring", "SponsorSupport"], "maxLength": 30 },
+        "agreementId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "feeAmountNaira": { "type": "number" },
+        "feeAmountUsdc": { "type": "number" },
+        "assetCode": { "type": "string", "enum": ["USDC"], "maxLength": 16 },
+        "status": { "type": "string", "enum": ["Pending Deposit", "Locked in Escrow", "Refunded", "Forfeited (Absconded)", "Disputed"], "maxLength": 40 },
+        "createdAt": { "type": "string", "maxLength": 60 }
+      },
+      "required": ["id", "ownerId", "obligorId", "obligorRole", "beneficiaryId", "agreementType", "agreementId", "feeAmountNaira", "feeAmountUsdc", "assetCode", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -532,6 +552,7 @@
     "/supportFundingAgreements/{agreementId}": { "schema": { "$ref": "#/entities/SupportFundingAgreementRecord" }, "description": "Soroban escrow funding agreement records." },
     "/workerPaymentAgreements/{agreementId}": { "schema": { "$ref": "#/entities/WorkerPaymentAgreementRecord" }, "description": "Isolated Soroban worker wage payment escrow records." },
     "/walletActivationRecords/{activationId}": { "schema": { "$ref": "#/entities/WalletActivationRecord" }, "description": "Stellar account activation records." },
-    "/walletAuditLogs/{logId}": { "schema": { "$ref": "#/entities/WalletAuditLog" }, "description": "Immutable Stellar wallet security audit logs." }
+    "/walletAuditLogs/{logId}": { "schema": { "$ref": "#/entities/WalletAuditLog" }, "description": "Immutable Stellar wallet security audit logs." },
+    "/acceptanceFees/{feeId}": { "schema": { "$ref": "#/entities/AcceptanceFeeRecord" }, "description": "Worker and Farmer anti-absconding USDC acceptance fee escrow bonds." }
   }
 }

@@ -285,8 +285,9 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
                 </h1>
                 <p className="mt-1 max-w-2xl text-xs text-[#718071]">
                   You only view accepted agreements where supervision is requested and you are
-                  invited or assigned. Supervisors submit inspection evidence and cannot alter
-                  agreements or transfer funds from user wallets.
+                  invited or assigned. Supervisors submit inspection evidence, cannot alter project
+                  agreements or access other users&apos; wallets, and manage their own Stellar USDC
+                  wallet below.
                 </p>
               </div>
               <div className="grid grid-cols-3 gap-4 rounded-2xl bg-[#F5F8F3] px-5 py-3 text-right">
@@ -635,12 +636,14 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="h-4 w-4 text-[#159B42]" />
                   <h2 className="text-base font-bold text-[#243629]">
-                    Read-Only Authorised Project Payment Status ({workerPayments.length})
+                    Supervised Project Wage Ledger (Read-Only Oversight · {workerPayments.length})
                   </h2>
                 </div>
                 {workerPayments.length === 0 ? (
                   <p className="mt-2 text-xs text-[#718071]">
-                    No authorised worker wage records linked to your supervised projects yet.
+                    No authorised worker wage records linked to your supervised projects yet. Use
+                    your personal Stellar USDC Wallet below to receive supervision fees or send/receive
+                    USDC.
                   </p>
                 ) : (
                   <div className="mt-3 space-y-2 text-xs">

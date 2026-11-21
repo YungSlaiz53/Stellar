@@ -30,14 +30,16 @@ test('Phase 0-6 Hardened Firestore Rules Verification (Four-Role, Supervision, V
     /data\.status != 'Confirmed Paid' \|\| \(data\.workConfirmedByFarmer == true && data\.paymentConfirmedByWorker == true\)/
   );
 
-  // 7. Supervision scoped strictly to invitedSupervisorId / assigned supervisorId
+  // 7. Supervision scoped strictly to invitedSupervisorId / assigned supervisorId; Supervisors own active wallets while Admin is read-only
   assert.match(rulesText, /existing\(\)\.invitedSupervisorId == request\.auth\.uid/);
   assert.match(rulesText, /existing\(\)\.supervisorId == request\.auth\.uid/);
-  assert.match(rulesText, /!userHasRole\('Supervisor'\)/);
+  assert.match(rulesText, /incoming\(\)\.role in \['Worker', 'Farmer', 'Sponsor', 'Supervisor'\]/);
+  assert.match(rulesText, /!userHasRole\('Admin'\)/);
 
-  // 8. Stellar public key regex guard and no fake Verified transactions from client
+  // 8. Stellar public key regex guard, no fake Verified transactions from client, and Acceptance Fee terminal lock
   assert.match(rulesText, /addr\.matches\('\^G\[A-Z2-7\]\{55\}\$'\)/);
   assert.match(rulesText, /incoming\(\)\.status == 'Pending Verification'/);
+  assert.match(rulesText, /!\(existing\(\)\.status in \['Refunded', 'Forfeited \(Absconded\)'\]\)/);
 
   // 9. Every collection in blueprint is covered by an explicit match block
   const requiredCollections = [
@@ -75,6 +77,7 @@ test('Phase 0-6 Hardened Firestore Rules Verification (Four-Role, Supervision, V
     'workerPaymentAgreements',
     'walletActivationRecords',
     'walletAuditLogs',
+    'acceptanceFees',
   ];
   for (const col of requiredCollections) {
     assert.ok(rulesText.includes(`match /${col}/`), `Missing collection match block for ${col}`);

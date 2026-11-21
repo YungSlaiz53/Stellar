@@ -15,6 +15,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import {
+  AcceptanceFeeRecord,
   AdminAuditLog,
   DisputeRecord,
   FarmerProfile,
@@ -73,6 +74,7 @@ interface AdminDashboardProps {
   supervisionAssignments: SupervisionAssignment[];
   supervisionReports: SupervisionReport[];
   workerPayments: WorkerPayment[];
+  acceptanceFees: AcceptanceFeeRecord[];
   disputes: DisputeRecord[];
   adminAuditLogs: AdminAuditLog[];
   onReviewSponsorAgreement: (agreement: SponsorFundingAgreement) => void;
@@ -105,6 +107,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   supervisionAssignments,
   supervisionReports,
   workerPayments,
+  acceptanceFees,
   disputes,
   adminAuditLogs,
   onReviewSponsorAgreement,
@@ -875,6 +878,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {/* 8. DISPUTES & ADMIN AUDIT LOGS */}
         {activeTab === 'Disputes & Audit Logs' && (
           <div className="space-y-6">
+            <div className="rounded-2xl border border-amber-300 bg-amber-50/60 p-6">
+              <div className="flex items-center gap-2">
+                <Scale className="h-5 w-5 text-amber-800" />
+                <h3 className="text-lg font-bold text-[#243629]">
+                  Acceptance Fee &amp; Anti-Absconding Escrow Bonds ({acceptanceFees.length})
+                </h3>
+              </div>
+              {acceptanceFees.length === 0 ? (
+                <p className="mt-2 text-xs text-[#718071]">
+                  No Farmer or Worker Acceptance Fee commitment bonds recorded yet.
+                </p>
+              ) : (
+                <div className="mt-4 overflow-x-auto rounded-xl border border-amber-200 bg-white p-3">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 text-[#718071]">
+                        <th className="py-2 pr-3">Obligor</th>
+                        <th className="py-2 px-3">Beneficiary</th>
+                        <th className="py-2 px-3">Agreement</th>
+                        <th className="py-2 px-3 text-right">Bond (USDC)</th>
+                        <th className="py-2 pl-3">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {acceptanceFees.map((fee) => (
+                        <tr key={fee.id}>
+                          <td className="py-2 pr-3 font-semibold">
+                            {fee.obligorName} ({fee.obligorRole})
+                          </td>
+                          <td className="py-2 px-3 text-[#718071]">{fee.beneficiaryName}</td>
+                          <td className="py-2 px-3 text-[#718071]">{fee.agreementTitle}</td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-[#116B32]">
+                            {fee.feeAmountUsdc.toFixed(2)} USDC
+                          </td>
+                          <td className="py-2 pl-3 font-mono font-bold">{fee.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-2xl border border-slate-200 bg-white p-6">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="h-5 w-5 text-amber-700" />

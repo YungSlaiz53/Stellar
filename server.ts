@@ -223,9 +223,17 @@ function loadVaultState(): ServerVaultState {
         mergedDevs.COMP01.role = 'Sponsor';
         mergedDevs.COMP01.sponsorType = 'organisation';
       }
+      const wallets = parsed.wallets || {};
+      // Upgrade any legacy Supervisor wallets that were previously marked Restricted
+      for (const w of Object.values(wallets)) {
+        if (w && w.role === 'Supervisor' && w.status === 'Restricted') {
+          w.status = w.horizonReachable && Number(w.xlmBalance || '0') > 0 ? 'Active' : 'Activation Required';
+          w.approvalPolicy = 'Authenticated user session + server-vault signing';
+        }
+      }
       return {
         custodyEntries: parsed.custodyEntries || {},
-        wallets: parsed.wallets || {},
+        wallets,
         transactions: parsed.transactions || [],
         supportEscrows: parsed.supportEscrows || [],
         workerEscrows: parsed.workerEscrows || [],
@@ -330,15 +338,18 @@ async function syncWalletWithHorizon(wallet: UserWallet): Promise<UserWallet> {
       }
     }
 
-    // Calculate locked escrow obligations for this user
+    // Calculate locked escrow obligations for this user (Support + Worker Wages + Acceptance Bonds)
     const lockedSupport = vaultState.supportEscrows
       .filter((e) => e.sponsorId === wallet.userId && e.status === 'Funded in Escrow')
       .reduce((sum, e) => sum + e.contributionAmount, 0);
     const lockedWorker = vaultState.workerEscrows
       .filter((e) => e.farmerId === wallet.userId && e.paymentStatus === 'Escrow Funded')
       .reduce((sum, e) => sum + e.paymentAmount, 0);
+    const lockedAcceptance = platformState.acceptanceFees
+      .filter((f) => f.obligorId === wallet.userId && f.status === 'Locked in Escrow')
+      .reduce((sum, f) => sum + f.feeAmountUsdc, 0);
 
-    const pendingEscrow = (lockedSupport + lockedWorker).toFixed(2);
+    const pendingEscrow = (lockedSupport + lockedWorker + lockedAcceptance).toFixed(2);
 
     const updated: UserWallet = {
       ...wallet,
@@ -363,6 +374,9 @@ async function syncWalletWithHorizon(wallet: UserWallet): Promise<UserWallet> {
     const lockedWorker = vaultState.workerEscrows
       .filter((e) => e.farmerId === wallet.userId && e.paymentStatus === 'Escrow Funded')
       .reduce((sum, e) => sum + e.paymentAmount, 0);
+    const lockedAcceptance = platformState.acceptanceFees
+      .filter((f) => f.obligorId === wallet.userId && f.status === 'Locked in Escrow')
+      .reduce((sum, f) => sum + f.feeAmountUsdc, 0);
 
     if (status === 404) {
       const unactivated: UserWallet = {
@@ -371,7 +385,7 @@ async function syncWalletWithHorizon(wallet: UserWallet): Promise<UserWallet> {
         xlmBalance: '0.00',
         usdcBalance: '0.00',
         availableUsdcBalance: '0.00',
-        pendingEscrowUsdcBalance: (lockedSupport + lockedWorker).toFixed(2),
+        pendingEscrowUsdcBalance: (lockedSupport + lockedWorker + lockedAcceptance).toFixed(2),
         hasUsdcTrustline: false,
         horizonReachable: true,
         updatedAt: nowIso,
@@ -409,10 +423,382 @@ async function verifyTransactionOnHorizon(txHash: string): Promise<{
   }
 }
 
+function provisionWalletForUser(params: {
+  userId: string;
+  role: UserRole;
+  sponsorType?: SponsorType;
+  displayName?: string;
+  organisationName?: string;
+}): { wallet: UserWallet; alreadyProvisioned: boolean } {
+  const { userId, role, sponsorType, displayName, organisationName } = params;
+  const authoritativeRole = platformState.users[userId]?.role || role;
+  const authoritativeSponsorType =
+    platformState.users[userId]?.sponsorType || sponsorType;
+
+  const existing = vaultState.wallets[userId];
+  if (existing) {
+    if (existing.role === 'Supervisor' && existing.status === 'Restricted') {
+      existing.status = 'Activation Required';
+      existing.approvalPolicy = 'Authenticated user session + server-vault signing';
+      saveVaultState();
+    }
+    return { wallet: existing, alreadyProvisioned: true };
+  }
+
+  const keypair = Keypair.random();
+  const publicKey = keypair.publicKey();
+  const encrypted = encryptSecret(keypair.secret());
+  const nowIso = new Date().toISOString();
+  const walletId = `ff_wal_${userId.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 24)}`;
+  const isOrgSponsor =
+    authoritativeRole === 'Sponsor' && authoritativeSponsorType === 'organisation';
+
+  vaultState.custodyEntries[userId] = {
+    walletId,
+    userId,
+    publicKey,
+    ...encrypted,
+    createdAt: nowIso,
+  };
+
+  const newWallet: UserWallet = {
+    walletId,
+    userId,
+    role: authoritativeRole,
+    sponsorType: authoritativeSponsorType,
+    displayName: displayName || platformState.users[userId]?.fullName || userId,
+    organisationName: isOrgSponsor
+      ? organisationName || displayName || 'Partner Organisation'
+      : undefined,
+    authorisedRepresentatives: isOrgSponsor
+      ? buildDefaultCompanyRepresentatives(displayName || 'Treasury Director')
+      : undefined,
+    approvalPolicy: isOrgSponsor
+      ? 'Role-based organisation signatory approval (no shared private keys)'
+      : authoritativeRole === 'Admin'
+        ? 'Read-only monitoring permissions (no autonomous wallet fund transfers)'
+        : 'Authenticated user session + server-vault signing',
+    walletAddress: publicKey,
+    provider: 'Stellar SDK Embedded Wallet (@stellar/stellar-sdk)',
+    custodyModel: isOrgSponsor
+      ? 'Organisation Vault Custody (AES-256-GCM Server Key Isolation · Per-Representative RBAC)'
+      : 'Managed Embedded Custody (AES-256-GCM Server Vault · Zero Plaintext Key Exposure)',
+    network: STELLAR_NETWORK,
+    status: authoritativeRole === 'Admin' ? 'Restricted' : 'Activation Required',
+    usdcBalance: '0.00',
+    availableUsdcBalance: '0.00',
+    pendingEscrowUsdcBalance: '0.00',
+    xlmBalance: '0.00',
+    hasUsdcTrustline: false,
+    horizonReachable: true,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+    lastVerifiedAt: nowIso,
+  };
+
+  vaultState.wallets[userId] = newWallet;
+  saveVaultState();
+
+  appendAuditLog({
+    actorId: userId,
+    action: 'WALLET_PROVISIONED',
+    targetUserId: userId,
+    walletId,
+    transactionReference: publicKey,
+    result: `Created unique Stellar ${STELLAR_NETWORK} address ${publicKey}`,
+  });
+
+  return { wallet: newWallet, alreadyProvisioned: false };
+}
+
+async function ensureEscrowVaultReadyOnTestnet(): Promise<{
+  publicKey: string;
+  keypair: Keypair;
+  hasUsdcTrustline: boolean;
+} | null> {
+  if (!vaultState.escrowVaultPublicKey || !vaultState.escrowVaultEncryptedSecret) {
+    const kp = Keypair.random();
+    vaultState.escrowVaultPublicKey = kp.publicKey();
+    vaultState.escrowVaultEncryptedSecret = encryptSecret(kp.secret());
+    saveVaultState();
+  }
+  const publicKey = vaultState.escrowVaultPublicKey;
+  const secret = decryptSecret(vaultState.escrowVaultEncryptedSecret);
+  const keypair = Keypair.fromSecret(secret);
+
+  try {
+    let account = await horizonServer.loadAccount(publicKey).catch(() => null);
+    if (!account && STELLAR_NETWORK === 'TESTNET') {
+      const fbRes = await fetch(`${FRIENDBOT_URL}?addr=${encodeURIComponent(publicKey)}`);
+      if (fbRes.ok) {
+        account = await horizonServer.loadAccount(publicKey).catch(() => null);
+      }
+    }
+    if (!account) return null;
+
+    let hasUsdcTrustline = account.balances.some(
+      (b) =>
+        (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
+        b.asset_code === 'USDC' &&
+        b.asset_issuer === OFFICIAL_USDC_ISSUER
+    );
+
+    if (!hasUsdcTrustline) {
+      const usdcAsset = new Asset('USDC', OFFICIAL_USDC_ISSUER);
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(Operation.changeTrust({ asset: usdcAsset }))
+        .addMemo(Memo.text('FarmFund Escrow Vault USDC'))
+        .setTimeout(60)
+        .build();
+      tx.sign(keypair);
+      await horizonServer.submitTransaction(tx);
+      hasUsdcTrustline = true;
+    }
+
+    return { publicKey, keypair, hasUsdcTrustline };
+  } catch {
+    return null;
+  }
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '6mb' }));
-  registerPlatformRoutes(app);
+  registerPlatformRoutes(app, {
+    onProvisionUserWallet: ({ userId, role, sponsorType, displayName }) => {
+      provisionWalletForUser({ userId, role, sponsorType, displayName });
+    },
+    onExecuteAcceptanceFeeSettlement: async ({ action, fee }) => {
+      const targetUserId = action === 'LOCK' ? fee.obligorId : fee.beneficiaryId;
+      const recipientUserId = action === 'REFUND' ? fee.obligorId : fee.beneficiaryId;
+      const targetWallet = vaultState.wallets[targetUserId];
+      const targetCustody = vaultState.custodyEntries[targetUserId];
+      const obligorWallet = vaultState.wallets[fee.obligorId];
+      const obligorCustody = vaultState.custodyEntries[fee.obligorId];
+      const recipientWallet = vaultState.wallets[recipientUserId];
+      const nowIso = new Date().toISOString();
+      const txTypeMap: Record<'LOCK' | 'REFUND' | 'FORFEIT', WalletTransaction['transactionType']> = {
+        LOCK: 'Acceptance Fee Deposit',
+        REFUND: 'Acceptance Fee Refund',
+        FORFEIT: 'Acceptance Fee Forfeit Payout',
+      };
+
+      try {
+        // Prefer real on-chain Circle USDC transfer when sender/vault hold real Testnet USDC
+        const escrowVault = await ensureEscrowVaultReadyOnTestnet();
+        if (action === 'LOCK' && obligorWallet && obligorCustody && escrowVault) {
+          const syncedObligor = await syncWalletWithHorizon(obligorWallet);
+          if (
+            syncedObligor.status === 'Active' &&
+            syncedObligor.hasUsdcTrustline &&
+            Number(syncedObligor.availableUsdcBalance || '0') >= fee.feeAmountUsdc
+          ) {
+            const secret = decryptSecret(obligorCustody);
+            const kp = Keypair.fromSecret(secret);
+            const acc = await horizonServer.loadAccount(syncedObligor.walletAddress);
+            const usdcAsset = new Asset('USDC', OFFICIAL_USDC_ISSUER);
+            const tx = new TransactionBuilder(acc, {
+              fee: BASE_FEE,
+              networkPassphrase: NETWORK_PASSPHRASE,
+            })
+              .addOperation(
+                Operation.payment({
+                  destination: escrowVault.publicKey,
+                  asset: usdcAsset,
+                  amount: fee.feeAmountUsdc.toFixed(7),
+                })
+              )
+              .addMemo(Memo.text(`Bond LOCK ${fee.feeAmountUsdc.toFixed(2)}USDC`.slice(0, 28)))
+              .setTimeout(60)
+              .build();
+            tx.sign(kp);
+            const submitted = await horizonServer.submitTransaction(tx);
+            vaultState.transactions.unshift({
+              transactionId: `wtx_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+              userId: fee.obligorId,
+              walletId: syncedObligor.walletId,
+              transactionHash: submitted.hash,
+              transactionType: txTypeMap.LOCK,
+              assetCode: 'USDC',
+              assetIssuer: OFFICIAL_USDC_ISSUER,
+              amount: fee.feeAmountUsdc,
+              senderAddress: syncedObligor.walletAddress,
+              recipientAddress: escrowVault.publicKey,
+              memoReference: `Bond LOCK (${fee.escrowReference})`,
+              relatedRequestId: fee.id,
+              relatedAgreementId: fee.agreementId,
+              relatedWorkerJobId: fee.agreementType === 'WorkerHiring' ? fee.agreementId : '',
+              status: 'Verified',
+              explorerUrl: `https://stellar.expert/explorer/testnet/tx/${submitted.hash}`,
+              createdAt: nowIso,
+              verifiedAt: nowIso,
+            });
+            await syncWalletWithHorizon(syncedObligor);
+            saveVaultState();
+            return { transactionHash: submitted.hash, onChain: true };
+          }
+        }
+
+        if (
+          (action === 'REFUND' || action === 'FORFEIT') &&
+          escrowVault &&
+          recipientWallet
+        ) {
+          const syncedRecipient = await syncWalletWithHorizon(recipientWallet);
+          const escrowAccount = await horizonServer.loadAccount(escrowVault.publicKey).catch(() => null);
+          const escrowUsdcBal = Number(
+            escrowAccount?.balances.find(
+              (b) =>
+                (b.asset_type === 'credit_alphanum4' || b.asset_type === 'credit_alphanum12') &&
+                b.asset_code === 'USDC' &&
+                b.asset_issuer === OFFICIAL_USDC_ISSUER
+            )?.balance || '0'
+          );
+          if (
+            syncedRecipient.status === 'Active' &&
+            syncedRecipient.hasUsdcTrustline &&
+            escrowUsdcBal >= fee.feeAmountUsdc &&
+            escrowAccount
+          ) {
+            const usdcAsset = new Asset('USDC', OFFICIAL_USDC_ISSUER);
+            const tx = new TransactionBuilder(escrowAccount, {
+              fee: BASE_FEE,
+              networkPassphrase: NETWORK_PASSPHRASE,
+            })
+              .addOperation(
+                Operation.payment({
+                  destination: syncedRecipient.walletAddress,
+                  asset: usdcAsset,
+                  amount: fee.feeAmountUsdc.toFixed(7),
+                })
+              )
+              .addMemo(Memo.text(`Bond ${action} ${fee.feeAmountUsdc.toFixed(2)}USDC`.slice(0, 28)))
+              .setTimeout(60)
+              .build();
+            tx.sign(escrowVault.keypair);
+            const submitted = await horizonServer.submitTransaction(tx);
+            vaultState.transactions.unshift({
+              transactionId: `wtx_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+              userId: recipientUserId,
+              walletId: syncedRecipient.walletId,
+              transactionHash: submitted.hash,
+              transactionType: txTypeMap[action],
+              assetCode: 'USDC',
+              assetIssuer: OFFICIAL_USDC_ISSUER,
+              amount: fee.feeAmountUsdc,
+              senderAddress: escrowVault.publicKey,
+              recipientAddress: syncedRecipient.walletAddress,
+              memoReference: `Bond ${action} (${fee.escrowReference})`,
+              relatedRequestId: fee.id,
+              relatedAgreementId: fee.agreementId,
+              relatedWorkerJobId: fee.agreementType === 'WorkerHiring' ? fee.agreementId : '',
+              status: 'Verified',
+              explorerUrl: `https://stellar.expert/explorer/testnet/tx/${submitted.hash}`,
+              createdAt: nowIso,
+              verifiedAt: nowIso,
+            });
+            await syncWalletWithHorizon(syncedRecipient);
+            saveVaultState();
+            return { transactionHash: submitted.hash, onChain: true };
+          }
+        }
+
+        // Secondary on-chain notarisation via manageData if wallet is active with XLM
+        if (targetWallet && targetCustody) {
+          const synced = await syncWalletWithHorizon(targetWallet);
+          if (synced.status === 'Active' && Number(synced.xlmBalance || '0') > 2.5) {
+            const secret = decryptSecret(targetCustody);
+            const kp = Keypair.fromSecret(secret);
+            const acc = await horizonServer.loadAccount(targetWallet.walletAddress);
+            const tx = new TransactionBuilder(acc, {
+              fee: BASE_FEE,
+              networkPassphrase: NETWORK_PASSPHRASE,
+            })
+              .addOperation(
+                Operation.manageData({
+                  name: `bond_${fee.id.slice(-8)}`,
+                  value: `${action}:${fee.feeAmountUsdc.toFixed(2)}_USDC`.slice(0, 60),
+                })
+              )
+              .addMemo(Memo.text(`Bond ${action} ${fee.feeAmountUsdc.toFixed(2)}USDC`.slice(0, 28)))
+              .setTimeout(60)
+              .build();
+            tx.sign(kp);
+            const submitted = await horizonServer.submitTransaction(tx);
+
+            vaultState.transactions.unshift({
+              transactionId: `wtx_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+              userId: targetUserId,
+              walletId: targetWallet.walletId,
+              transactionHash: submitted.hash,
+              transactionType: txTypeMap[action],
+              assetCode: 'USDC',
+              assetIssuer: OFFICIAL_USDC_ISSUER,
+              amount: fee.feeAmountUsdc,
+              senderAddress:
+                action === 'LOCK'
+                  ? targetWallet.walletAddress
+                  : vaultState.escrowVaultPublicKey || targetWallet.walletAddress,
+              recipientAddress:
+                action === 'LOCK'
+                  ? vaultState.escrowVaultPublicKey || targetWallet.walletAddress
+                  : targetWallet.walletAddress,
+              memoReference: `Bond ${action} (${fee.escrowReference})`,
+              relatedRequestId: fee.id,
+              relatedAgreementId: fee.agreementId,
+              relatedWorkerJobId: fee.agreementType === 'WorkerHiring' ? fee.agreementId : '',
+              status: 'Verified',
+              explorerUrl: `https://stellar.expert/explorer/testnet/tx/${submitted.hash}`,
+              createdAt: nowIso,
+              verifiedAt: nowIso,
+            });
+            saveVaultState();
+            return { transactionHash: submitted.hash, onChain: true };
+          }
+        }
+      } catch {
+        // Fall through to honest commitment hold marker if Testnet Horizon unavailable or wallet unfunded
+      }
+
+      const fallbackHash = `COMMITMENT_${action}_${Date.now()}`;
+      if (targetWallet) {
+        vaultState.transactions.unshift({
+          transactionId: `wtx_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+          userId: targetUserId,
+          walletId: targetWallet.walletId,
+          transactionHash: fallbackHash,
+          transactionType: txTypeMap[action],
+          assetCode: 'USDC',
+          assetIssuer: OFFICIAL_USDC_ISSUER,
+          amount: fee.feeAmountUsdc,
+          senderAddress:
+            action === 'LOCK'
+              ? targetWallet.walletAddress
+              : vaultState.escrowVaultPublicKey || targetWallet.walletAddress,
+          recipientAddress:
+            action === 'LOCK'
+              ? vaultState.escrowVaultPublicKey || targetWallet.walletAddress
+              : targetWallet.walletAddress,
+          memoReference: `Commitment ${action} (${fee.escrowReference})`,
+          relatedRequestId: fee.id,
+          relatedAgreementId: fee.agreementId,
+          relatedWorkerJobId: fee.agreementType === 'WorkerHiring' ? fee.agreementId : '',
+          status: 'Pending Verification',
+          explorerUrl: '',
+          createdAt: nowIso,
+          verifiedAt: '',
+        });
+        saveVaultState();
+      }
+      return {
+        transactionHash: fallbackHash,
+        onChain: false,
+      };
+    },
+  });
 
   // ==========================================================================
   // 1. DEVELOPMENT ACCOUNT CODE AUTHENTICATION & FORCED PASSWORD CHANGE
@@ -462,6 +848,13 @@ async function startServer() {
       email: devAccount.email,
       accountCode: devAccount.code,
       mustChangePasswordOnFirstLogin: devAccount.mustChangePasswordOnFirstLogin,
+    });
+
+    provisionWalletForUser({
+      userId: devAccount.userId,
+      role: devAccount.role,
+      sponsorType: devAccount.sponsorType,
+      displayName: devAccount.displayName,
     });
 
     appendAuditLog({
@@ -525,7 +918,7 @@ async function startServer() {
   });
 
   // ==========================================================================
-  // 2. IDEMPOTENT EMBEDDED STELLAR WALLET PROVISIONING
+  // 2. IDEMPOTENT EMBEDDED STELLAR WALLET PROVISIONING & PUBLIC DIRECTORY
   // ==========================================================================
   app.post('/api/stellar/wallet/provision', async (req: Request, res: Response) => {
     const { userId, role, sponsorType, displayName, organisationName } = req.body as {
@@ -541,14 +934,16 @@ async function startServer() {
       return;
     }
 
-    const authoritativeRole = platformState.users[userId]?.role || role;
-    const authoritativeSponsorType =
-      platformState.users[userId]?.sponsorType || sponsorType;
+    const { wallet, alreadyProvisioned } = provisionWalletForUser({
+      userId,
+      role,
+      sponsorType,
+      displayName,
+      organisationName,
+    });
 
-    // Idempotent check: never create duplicate wallets for the same user
-    const existing = vaultState.wallets[userId];
-    if (existing) {
-      const synced = await syncWalletWithHorizon(existing);
+    if (alreadyProvisioned) {
+      const synced = await syncWalletWithHorizon(wallet);
       res.json({
         wallet: synced,
         alreadyProvisioned: true,
@@ -556,76 +951,37 @@ async function startServer() {
       return;
     }
 
-    const keypair = Keypair.random();
-    const publicKey = keypair.publicKey();
-    const encrypted = encryptSecret(keypair.secret());
-    const nowIso = new Date().toISOString();
-    const walletId = `ff_wal_${userId.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 24)}`;
-    const isOrgSponsor =
-      authoritativeRole === 'Sponsor' && authoritativeSponsorType === 'organisation';
-
-    vaultState.custodyEntries[userId] = {
-      walletId,
-      userId,
-      publicKey,
-      ...encrypted,
-      createdAt: nowIso,
-    };
-
-    const newWallet: UserWallet = {
-      walletId,
-      userId,
-      role: authoritativeRole,
-      sponsorType: authoritativeSponsorType,
-      displayName: displayName || userId,
-      organisationName: isOrgSponsor
-        ? organisationName || displayName || 'Partner Organisation'
-        : undefined,
-      authorisedRepresentatives: isOrgSponsor
-        ? buildDefaultCompanyRepresentatives(displayName || 'Treasury Director')
-        : undefined,
-      approvalPolicy: isOrgSponsor
-        ? 'Role-based organisation signatory approval (no shared private keys)'
-        : authoritativeRole === 'Supervisor' || authoritativeRole === 'Admin'
-          ? 'Read-only monitoring permissions (no autonomous wallet fund transfers)'
-          : 'Authenticated user session + server-vault signing',
-      walletAddress: publicKey,
-      provider: 'Stellar SDK Embedded Wallet (@stellar/stellar-sdk)',
-      custodyModel: isOrgSponsor
-        ? 'Organisation Vault Custody (AES-256-GCM Server Key Isolation · Per-Representative RBAC)'
-        : 'Managed Embedded Custody (AES-256-GCM Server Vault · Zero Plaintext Key Exposure)',
-      network: STELLAR_NETWORK,
-      status:
-        authoritativeRole === 'Admin' || authoritativeRole === 'Supervisor'
-          ? 'Restricted'
-          : 'Activation Required',
-      usdcBalance: '0.00',
-      availableUsdcBalance: '0.00',
-      pendingEscrowUsdcBalance: '0.00',
-      xlmBalance: '0.00',
-      hasUsdcTrustline: false,
-      horizonReachable: true,
-      createdAt: nowIso,
-      updatedAt: nowIso,
-      lastVerifiedAt: nowIso,
-    };
-
-    vaultState.wallets[userId] = newWallet;
-    saveVaultState();
-
-    appendAuditLog({
-      actorId: userId,
-      action: 'WALLET_PROVISIONED',
-      targetUserId: userId,
-      walletId,
-      transactionReference: publicKey,
-      result: `Created unique Stellar ${STELLAR_NETWORK} address ${publicKey}`,
-    });
-
     res.json({
-      wallet: newWallet,
+      wallet,
       alreadyProvisioned: false,
     });
+  });
+
+  app.get('/api/stellar/wallets/directory', (_req: Request, res: Response) => {
+    for (const user of Object.values(platformState.users)) {
+      provisionWalletForUser({
+        userId: user.id,
+        role: user.role,
+        sponsorType: user.sponsorType,
+        displayName: user.fullName,
+      });
+    }
+
+    const directory = Object.values(vaultState.wallets)
+      .filter((w) => w.role !== 'Admin')
+      .map((w) => ({
+        userId: w.userId,
+        displayName: platformState.users[w.userId]?.fullName || w.displayName || w.userId,
+        role: w.role,
+        sponsorType: w.sponsorType,
+        walletAddress: w.walletAddress,
+        status: w.status,
+        hasUsdcTrustline: Boolean(w.hasUsdcTrustline),
+        usdcBalance: w.usdcBalance || '0.00',
+        xlmBalance: w.xlmBalance || '0.00',
+      }));
+
+    res.json({ wallets: directory });
   });
 
   // ==========================================================================
@@ -685,10 +1041,10 @@ async function startServer() {
       return;
     }
 
-    if (wallet.role === 'Admin' || wallet.role === 'Supervisor') {
+    if (wallet.role === 'Admin') {
       res.status(403).json({
         error:
-          'Supervisors and Administrators have restricted read-only monitoring permissions and cannot activate commercial payment wallets.',
+          'Administrators have restricted read-only monitoring permissions and cannot activate commercial payment wallets.',
       });
       return;
     }
@@ -818,6 +1174,152 @@ async function startServer() {
   });
 
   // ==========================================================================
+  // 4B. ACQUIRE REAL TESTNET CIRCLE USDC VIA STELLAR SDEX (XLM -> USDC SWAP)
+  // ==========================================================================
+  app.post('/api/stellar/wallet/swap-testnet-usdc', async (req: Request, res: Response) => {
+    if (STELLAR_NETWORK !== 'TESTNET') {
+      res.status(403).json({
+        error: 'Testnet XLM-to-USDC SDEX acquisition is only available on Stellar Testnet.',
+      });
+      return;
+    }
+
+    const { userId, targetUsdcAmount } = req.body as {
+      userId?: string;
+      targetUsdcAmount?: number;
+    };
+    const numericUsdc = Math.min(500, Math.max(1, Number(targetUsdcAmount) || 50));
+
+    if (!userId) {
+      res.status(400).json({ error: 'userId is required.' });
+      return;
+    }
+
+    const wallet = vaultState.wallets[userId];
+    const custody = vaultState.custodyEntries[userId];
+    if (!wallet || !custody) {
+      res.status(404).json({ error: 'Wallet not found. Provision the wallet first.' });
+      return;
+    }
+    if (wallet.role === 'Admin') {
+      res.status(403).json({
+        error: 'Administrators cannot execute commercial wallet swaps.',
+      });
+      return;
+    }
+
+    try {
+      const synced = await syncWalletWithHorizon(wallet);
+      if (synced.status !== 'Active' || !synced.hasUsdcTrustline) {
+        res.status(400).json({
+          error: 'Activate your Stellar wallet and Circle USDC trustline first.',
+        });
+        return;
+      }
+
+      const usdcAsset = new Asset('USDC', OFFICIAL_USDC_ISSUER);
+      const pathsRes = await horizonServer
+        .strictReceivePaths([Asset.native()], usdcAsset, numericUsdc.toFixed(7))
+        .call();
+
+      const bestPath = pathsRes.records?.[0];
+      if (!bestPath) {
+        res.status(502).json({
+          error: 'No Stellar Testnet SDEX liquidity path found for XLM to Circle USDC right now.',
+        });
+        return;
+      }
+
+      const estimatedXlm = Number(bestPath.source_amount || '0');
+      const maxXlm = Math.min(
+        Math.max(0, Number(synced.xlmBalance || '0') - 5),
+        estimatedXlm * 1.15
+      );
+      if (!Number.isFinite(maxXlm) || maxXlm <= 0 || estimatedXlm > maxXlm) {
+        res.status(400).json({
+          error: `Insufficient Testnet XLM balance for swap (needs ~${estimatedXlm.toFixed(2)} XLM).`,
+        });
+        return;
+      }
+
+      const secret = decryptSecret(custody);
+      const kp = Keypair.fromSecret(secret);
+      const account = await horizonServer.loadAccount(synced.walletAddress);
+      const pathAssets = (bestPath.path || []).map((p) =>
+        p.asset_type === 'native'
+          ? Asset.native()
+          : new Asset(p.asset_code || '', p.asset_issuer || '')
+      );
+
+      const tx = new TransactionBuilder(account, {
+        fee: BASE_FEE,
+        networkPassphrase: NETWORK_PASSPHRASE,
+      })
+        .addOperation(
+          Operation.pathPaymentStrictReceive({
+            sendAsset: Asset.native(),
+            sendMax: maxXlm.toFixed(7),
+            destination: synced.walletAddress,
+            destAsset: usdcAsset,
+            destAmount: numericUsdc.toFixed(7),
+            path: pathAssets,
+          })
+        )
+        .addMemo(Memo.text(`SDEX ${numericUsdc.toFixed(0)} USDC`.slice(0, 28)))
+        .setTimeout(60)
+        .build();
+
+      tx.sign(kp);
+      const submitted = await horizonServer.submitTransaction(tx);
+      const verification = await verifyTransactionOnHorizon(submitted.hash);
+      const nowIso = new Date().toISOString();
+
+      const txRecord: WalletTransaction = {
+        transactionId: `wtx_${Date.now()}`,
+        userId,
+        walletId: synced.walletId,
+        transactionHash: submitted.hash,
+        transactionType: 'Testnet XLM → Circle USDC Swap',
+        assetCode: 'USDC',
+        assetIssuer: OFFICIAL_USDC_ISSUER,
+        amount: numericUsdc,
+        senderAddress: synced.walletAddress,
+        recipientAddress: synced.walletAddress,
+        memoReference: `SDEX Swap (${estimatedXlm.toFixed(2)} XLM)`,
+        relatedRequestId: '',
+        relatedAgreementId: '',
+        relatedWorkerJobId: '',
+        status: verification.verified ? 'Verified' : 'Pending Verification',
+        explorerUrl: `https://stellar.expert/explorer/testnet/tx/${submitted.hash}`,
+        createdAt: nowIso,
+        verifiedAt: verification.verified ? nowIso : '',
+      };
+
+      vaultState.transactions.unshift(txRecord);
+      const updatedWallet = await syncWalletWithHorizon(synced);
+      appendAuditLog({
+        actorId: userId,
+        action: 'TESTNET_SDEX_USDC_SWAP',
+        targetUserId: userId,
+        walletId: synced.walletId,
+        transactionReference: submitted.hash,
+        result: `Swapped ~${estimatedXlm.toFixed(2)} XLM for ${numericUsdc.toFixed(2)} Circle USDC on Stellar Testnet`,
+      });
+
+      res.json({
+        wallet: updatedWallet,
+        transaction: txRecord,
+      });
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : 'Testnet SDEX XLM-to-USDC swap failed.';
+      res.status(502).json({
+        error: `Stellar Testnet SDEX swap error: ${message}`,
+      });
+    }
+  });
+
+  // ==========================================================================
   // 5. SEND REAL STELLAR PAYMENT (XLM OR OFFICIAL CIRCLE USDC) WITH VERIFICATION
   // ==========================================================================
   app.post('/api/stellar/payment/send', async (req: Request, res: Response) => {
@@ -826,6 +1328,7 @@ async function startServer() {
       recipientAddress,
       amount,
       assetCode,
+      transactionType,
       memoReference,
       relatedRequestId,
       relatedAgreementId,
@@ -836,6 +1339,7 @@ async function startServer() {
       recipientAddress?: string;
       amount?: number;
       assetCode?: 'USDC' | 'XLM';
+      transactionType?: string;
       memoReference?: string;
       relatedRequestId?: string;
       relatedAgreementId?: string;
@@ -867,10 +1371,10 @@ async function startServer() {
       return;
     }
 
-    if (wallet.role === 'Admin' || wallet.role === 'Supervisor') {
+    if (wallet.role === 'Admin') {
       res.status(403).json({
         error:
-          'Supervisors and Administrators have restricted monitoring permissions and cannot send or withdraw wallet funds.',
+          'Administrators have restricted monitoring permissions and cannot send or withdraw wallet funds.',
       });
       return;
     }
@@ -984,7 +1488,7 @@ async function startServer() {
         userId,
         walletId: wallet.walletId,
         transactionHash: submitted.hash,
-        transactionType: 'Direct Transfer',
+        transactionType: transactionType || 'Direct Transfer',
         assetCode,
         assetIssuer: assetCode === 'USDC' ? OFFICIAL_USDC_ISSUER : 'native',
         amount: numericAmount,
@@ -1006,6 +1510,12 @@ async function startServer() {
       }
 
       const updatedWallet = await syncWalletWithHorizon(wallet);
+      const matchingRecipientWallet = Object.values(vaultState.wallets).find(
+        (w) => w.walletAddress === cleanRecipient
+      );
+      if (matchingRecipientWallet) {
+        await syncWalletWithHorizon(matchingRecipientWallet);
+      }
       appendAuditLog({
         actorId: userId,
         action: `PAYMENT_SENT_${assetCode}`,

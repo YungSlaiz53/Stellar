@@ -642,6 +642,34 @@ service cloud.firestore {
         data.timestamp is string && data.timestamp.size() <= 60;
     }
 
+    function isValidAcceptanceFee(data) {
+      return data.keys().hasAll([
+        'id', 'ownerId', 'obligorId', 'obligorRole', 'beneficiaryId',
+        'agreementType', 'agreementId', 'feeAmountNaira', 'feeAmountUsdc',
+        'assetCode', 'status', 'createdAt'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'ownerId', 'obligorId', 'obligorName', 'obligorRole', 'beneficiaryId',
+        'beneficiaryName', 'agreementType', 'agreementId', 'agreementTitle',
+        'agreedPrincipalNaira', 'feeAmountNaira', 'feeAmountUsdc', 'assetCode',
+        'status', 'escrowReference', 'transactionHash', 'settlementHash',
+        'abscondedReason', 'reportedById', 'createdAt', 'updatedAt', 'resolvedAt'
+      ]) &&
+      isValidId(data.id) &&
+      isValidId(data.ownerId) &&
+      isValidId(data.obligorId) &&
+      data.obligorRole is string && data.obligorRole in ['Worker', 'Farmer'] &&
+      isValidId(data.beneficiaryId) &&
+      data.agreementType is string && data.agreementType in ['WorkerHiring', 'SponsorSupport'] &&
+      isValidId(data.agreementId) &&
+      data.feeAmountNaira is number && data.feeAmountNaira >= 1000 && data.feeAmountNaira <= 100000 &&
+      data.feeAmountUsdc is number && data.feeAmountUsdc > 0 && data.feeAmountUsdc <= 10000 &&
+      data.assetCode is string && data.assetCode == 'USDC' &&
+      data.status is string &&
+      data.status in ['Pending Deposit', 'Locked in Escrow', 'Refunded', 'Forfeited (Absconded)', 'Disputed'] &&
+      data.createdAt is string && data.createdAt.size() <= 60;
+    }
+
     // Core Users (Strict PII Protection + Role Lock + No Public Admin Self-Assignment + No Self-Verification)
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (
@@ -1390,7 +1418,7 @@ service cloud.firestore {
       allow write: if isAdmin() && isValidId(settingId) && isValidPlatformSettings(incoming());
     }
 
-    // Preserved Stellar Wallet & Escrow Collections (Supervisors & Admins cannot execute transfers)
+    // Preserved Stellar Wallet & Escrow Collections (Worker, Farmer, Sponsor, and Supervisor own active wallets; Admins read-only)
     match /userWallets/{walletId} {
       allow get: if isSignedIn() && isValidId(walletId) && (
         existing().userId == request.auth.uid || isAdmin()
@@ -1402,7 +1430,7 @@ service cloud.firestore {
         isValidUserWallet(incoming()) &&
         incoming().walletId == walletId &&
         incoming().userId == request.auth.uid &&
-        incoming().role in ['Worker', 'Farmer', 'Sponsor'];
+        incoming().role in ['Worker', 'Farmer', 'Sponsor', 'Supervisor'];
       allow update: if isVerifiedUser() && isValidId(walletId) &&
         isValidUserWallet(incoming()) &&
         incoming().walletId == existing().walletId &&
@@ -1429,7 +1457,7 @@ service cloud.firestore {
         incoming().transactionId == transactionId &&
         incoming().userId == request.auth.uid &&
         incoming().status == 'Pending Verification' &&
-        !userHasRole('Supervisor');
+        !userHasRole('Admin');
       allow update: if isVerifiedUser() && isValidId(transactionId) &&
         isValidWalletTransaction(incoming()) &&
         incoming().transactionId == existing().transactionId &&
@@ -1537,6 +1565,45 @@ service cloud.firestore {
         incoming().logId == logId &&
         incoming().actorId == request.auth.uid;
       allow update, delete: if false;
+    }
+
+    // Anti-Absconding Acceptance Fee Bonds (Workers & Farmers)
+    match /acceptanceFees/{feeId} {
+      allow get: if isSignedIn() && isValidId(feeId) && (
+        existing().obligorId == request.auth.uid ||
+        existing().beneficiaryId == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        existing().obligorId == request.auth.uid ||
+        existing().beneficiaryId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(feeId) &&
+        isValidAcceptanceFee(incoming()) &&
+        incoming().id == feeId &&
+        (incoming().obligorId == request.auth.uid || incoming().beneficiaryId == request.auth.uid || isAdmin());
+      allow update: if isVerifiedUser() && isValidId(feeId) &&
+        isValidAcceptanceFee(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().obligorId == existing().obligorId &&
+        incoming().beneficiaryId == existing().beneficiaryId &&
+        incoming().agreementId == existing().agreementId &&
+        incoming().feeAmountNaira == existing().feeAmountNaira &&
+        incoming().feeAmountUsdc == existing().feeAmountUsdc &&
+        incoming().createdAt == existing().createdAt &&
+        !(existing().status in ['Refunded', 'Forfeited (Absconded)']) && (
+          isAdmin() ||
+          (existing().status == 'Pending Deposit' &&
+           existing().obligorId == request.auth.uid &&
+           incoming().status == 'Locked in Escrow' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'transactionHash', 'updatedAt'])) ||
+          ((existing().status == 'Locked in Escrow' || existing().status == 'Disputed') &&
+           existing().beneficiaryId == request.auth.uid &&
+           incoming().status in ['Refunded', 'Forfeited (Absconded)', 'Disputed'] &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['status', 'settlementHash', 'abscondedReason', 'reportedById', 'updatedAt', 'resolvedAt']))
+        );
+      allow delete: if false;
     }
   }
 }

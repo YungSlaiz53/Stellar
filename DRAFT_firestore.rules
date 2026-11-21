@@ -792,7 +792,7 @@ service cloud.firestore {
         isValidUserWallet(incoming()) &&
         incoming().walletId == walletId &&
         incoming().userId == request.auth.uid &&
-        incoming().role in ['Farmer', 'Worker', 'Sponsor', 'Company'];
+        incoming().role in ['Worker', 'Farmer', 'Sponsor', 'Supervisor'];
       allow update: if isVerifiedUser() && isValidId(walletId) &&
         isValidUserWallet(incoming()) &&
         incoming().walletId == existing().walletId &&

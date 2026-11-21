@@ -18,6 +18,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import {
+  AcceptanceFeeRecord,
   ShareArrangementType,
   SponsorType,
   SupportFundingAgreementRecord,
@@ -35,6 +36,36 @@ import {
   validateStellarPaymentDraft,
 } from '../utils/farmfundLogic';
 
+export interface WalletPaymentPrefill {
+  recipientUserId?: string;
+  recipientAddress?: string;
+  recipientName?: string;
+  amountUsdc?: string;
+  assetCode?: 'USDC' | 'XLM';
+  transactionType?: string;
+  memoReference?: string;
+  purpose?:
+    | 'FARM_SPONSORSHIP'
+    | 'POST_WORK_FARMER_SETTLEMENT'
+    | 'POST_WORK_WORKER_WAGE'
+    | 'SUPERVISION_FEE';
+  relatedAgreementId?: string;
+  relatedWorkerPaymentId?: string;
+  amountNaira?: number;
+}
+
+export interface WalletDirectoryEntry {
+  userId: string;
+  displayName: string;
+  role: UserRole;
+  sponsorType?: SponsorType;
+  walletAddress: string;
+  status: string;
+  hasUsdcTrustline: boolean;
+  usdcBalance: string;
+  xlmBalance: string;
+}
+
 interface StellarWalletDashboardProps {
   userId: string;
   userName: string;
@@ -42,6 +73,11 @@ interface StellarWalletDashboardProps {
   sponsorType?: SponsorType;
   supportRequests: SupportRequest[];
   workerRequests: WorkerRequest[];
+  acceptanceFees?: AcceptanceFeeRecord[];
+  prefillPayment?: WalletPaymentPrefill | null;
+  onClearPrefill?: () => void;
+  onPaymentRecorded?: () => Promise<void> | void;
+  onLockAcceptanceFee?: (feeId: string) => Promise<void>;
 }
 
 export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
@@ -51,10 +87,16 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
   sponsorType,
   supportRequests,
   workerRequests,
+  acceptanceFees = [],
+  prefillPayment,
+  onClearPrefill,
+  onPaymentRecorded,
+  onLockAcceptanceFee,
 }) => {
-  const isReadOnlyWalletRole = role === 'Admin' || role === 'Supervisor';
+  const isReadOnlyWalletRole = role === 'Admin';
   const isOrgSponsor = role === 'Sponsor' && sponsorType === 'organisation';
   const [wallet, setWallet] = useState<UserWallet | null>(null);
+  const [directoryWallets, setDirectoryWallets] = useState<WalletDirectoryEntry[]>([]);
   const [officialUsdcIssuer, setOfficialUsdcIssuer] = useState<string>(
     OFFICIAL_USDC_ISSUER_TESTNET
   );
@@ -68,6 +110,8 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
 
   const [loading, setLoading] = useState<boolean>(true);
   const [activating, setActivating] = useState<boolean>(false);
+  const [swappingUsdc, setSwappingUsdc] = useState<boolean>(false);
+  const [swapUsdcAmount, setSwapUsdcAmount] = useState<string>('50');
   const [sending, setSending] = useState<boolean>(false);
   const [escrowBusy, setEscrowBusy] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -80,25 +124,27 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
     'Overview & Send' | 'Receive & QR' | 'Soroban Escrows & Wages' | 'Transactions & Audit'
   >('Overview & Send');
 
-  // Send Payment Form State
+  // Send Payment Form State (Defaulting to Official Circle USDC)
+  const [selectedDirectoryUserId, setSelectedDirectoryUserId] = useState<string>('');
   const [recipientAddress, setRecipientAddress] = useState<string>('');
   const [sendAmount, setSendAmount] = useState<string>('');
-  const [sendAsset, setSendAsset] = useState<'USDC' | 'XLM'>('XLM');
-  const [memoRef, setMemoRef] = useState<string>('FarmFund Payment');
+  const [sendAsset, setSendAsset] = useState<'USDC' | 'XLM'>('USDC');
+  const [memoRef, setMemoRef] = useState<string>('FarmFund USDC Payment');
   const [txFilter, setTxFilter] = useState<'ALL' | 'USDC' | 'XLM'>('ALL');
 
-  // Worker Wage USDC Calculator State (5 Workers @ ₦10,000 example)
+  // Worker Wage USDC Calculator State
   const [calcWorkersCount, setCalcWorkersCount] = useState<number>(5);
   const [calcWagePerWorkerNaira, setCalcWagePerWorkerNaira] = useState<number>(10000);
   const [calcNgnPerUsdcRate, setCalcNgnPerUsdcRate] = useState<number>(1600);
   const [selectedWorkerReqId, setSelectedWorkerReqId] = useState<string>(
-    workerRequests[0]?.id || 'wrk_req_1'
+    workerRequests[0]?.id || ''
   );
-  const [workerRecipientName, setWorkerRecipientName] = useState<string>('Musa Danjuma');
+  const [workerRecipientId, setWorkerRecipientId] = useState<string>('');
+  const [workerRecipientName, setWorkerRecipientName] = useState<string>('');
 
   // Sponsor 30% Support Escrow Form State
   const [selectedSupportReqId, setSelectedSupportReqId] = useState<string>(
-    supportRequests[0]?.id || 'sup_req_1'
+    supportRequests[0]?.id || ''
   );
   const [escrowContributionUsdc, setEscrowContributionUsdc] = useState<string>('950');
   const [escrowShareType, setEscrowShareType] = useState<ShareArrangementType>(
@@ -131,7 +177,10 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
         throw new Error(errData.error || 'Failed to provision embedded Stellar wallet.');
       }
 
-      const detailRes = await fetch(`/api/stellar/wallet/${encodeURIComponent(userId)}`);
+      const [detailRes, dirRes] = await Promise.all([
+        fetch(`/api/stellar/wallet/${encodeURIComponent(userId)}`),
+        fetch('/api/stellar/wallets/directory'),
+      ]);
       if (!detailRes.ok) {
         throw new Error('Failed to load Stellar wallet state.');
       }
@@ -144,6 +193,10 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
         workerEscrows: WorkerPaymentAgreementRecord[];
         activations: WalletActivationRecord[];
       };
+      if (dirRes.ok) {
+        const dirData = (await dirRes.json()) as { wallets?: WalletDirectoryEntry[] };
+        setDirectoryWallets((dirData.wallets || []).filter((w) => w.userId !== userId));
+      }
 
       setWallet(detail.wallet);
       setOfficialUsdcIssuer(detail.officialUsdcIssuer);
@@ -176,6 +229,27 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
   useEffect(() => {
     void loadOrProvisionWallet();
   }, [loadOrProvisionWallet]);
+
+  useEffect(() => {
+    if (!prefillPayment) return;
+    setActiveSubTab('Overview & Send');
+    setSendAsset(prefillPayment.assetCode || 'USDC');
+    if (prefillPayment.amountUsdc) setSendAmount(prefillPayment.amountUsdc);
+    if (prefillPayment.memoReference) {
+      setMemoRef(prefillPayment.memoReference.slice(0, 28));
+    }
+    if (prefillPayment.recipientUserId) {
+      setSelectedDirectoryUserId(prefillPayment.recipientUserId);
+      const match = directoryWallets.find((w) => w.userId === prefillPayment.recipientUserId);
+      if (match) {
+        setRecipientAddress(match.walletAddress);
+      } else if (prefillPayment.recipientAddress) {
+        setRecipientAddress(prefillPayment.recipientAddress);
+      }
+    } else if (prefillPayment.recipientAddress) {
+      setRecipientAddress(prefillPayment.recipientAddress);
+    }
+  }, [prefillPayment, directoryWallets]);
 
   const handleCopyAddress = async () => {
     if (!wallet?.walletAddress) return;
@@ -214,6 +288,38 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
       setErrorMsg(err instanceof Error ? err.message : 'Wallet activation failed.');
     } finally {
       setActivating(false);
+    }
+  };
+
+  const handleSwapTestnetUsdc = async (targetAmount: number) => {
+    setSwappingUsdc(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      const res = await fetch('/api/stellar/wallet/swap-testnet-usdc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          targetUsdcAmount: targetAmount,
+        }),
+      });
+      const data = (await res.json()) as {
+        wallet?: UserWallet;
+        transaction?: WalletTransaction;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to swap Testnet XLM for Circle USDC.');
+      }
+      setSuccessMsg(
+        `Swapped Testnet XLM for ${targetAmount.toFixed(2)} Official Circle USDC on Stellar SDEX! Tx: ${data.transaction?.transactionHash.slice(0, 18)}...`
+      );
+      await loadOrProvisionWallet();
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Testnet USDC acquisition failed.');
+    } finally {
+      setSwappingUsdc(false);
     }
   };
 
@@ -257,7 +363,9 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
           recipientAddress: recipientAddress.trim(),
           amount: numericAmount,
           assetCode: sendAsset,
-          memoReference: memoRef.trim() || 'FarmFund Payment',
+          transactionType: prefillPayment?.transactionType || `${sendAsset} Transfer`,
+          memoReference: memoRef.trim() || 'FarmFund USDC Payment',
+          relatedAgreementId: prefillPayment?.relatedAgreementId,
           idempotencyKey,
         }),
       });
@@ -268,11 +376,41 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
       if (!res.ok) {
         throw new Error(data.error || 'Payment rejected by Stellar Testnet.');
       }
+
+      const matchedRecipient =
+        directoryWallets.find((w) => w.walletAddress === recipientAddress.trim()) ||
+        (prefillPayment?.recipientUserId
+          ? { userId: prefillPayment.recipientUserId }
+          : undefined);
+
+      if (prefillPayment?.purpose && matchedRecipient?.userId) {
+        await fetch('/api/sponsor-payments/record', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sponsorId: userId,
+            recipientId: matchedRecipient.userId,
+            purpose: prefillPayment.purpose,
+            amountUsdc: numericAmount,
+            amountNaira: prefillPayment.amountNaira,
+            transactionHash: data.transaction?.transactionHash,
+            relatedAgreementId: prefillPayment.relatedAgreementId,
+            relatedWorkerPaymentId: prefillPayment.relatedWorkerPaymentId,
+            note: memoRef.trim(),
+          }),
+        }).catch(() => {});
+        if (onPaymentRecorded) {
+          await onPaymentRecorded();
+        }
+      }
+
       setSuccessMsg(
         `Verified on Stellar Testnet Horizon! Sent ${numericAmount.toFixed(2)} ${sendAsset} · Hash: ${data.transaction?.transactionHash.slice(0, 18)}...`
       );
       setSendAmount('');
       setRecipientAddress('');
+      setSelectedDirectoryUserId('');
+      onClearPrefill?.();
       await loadOrProvisionWallet();
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to submit Stellar transaction.');
@@ -295,7 +433,7 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
           action: 'CREATE_AND_FUND',
           sponsorId: userId,
           sponsorName: userName,
-          farmerId: reqObj.farmerId || 'demo_farmer_1',
+          farmerId: reqObj.farmerId,
           farmerName: reqObj.farmerName,
           requestId: reqObj.id,
           requestTitle: reqObj.title,
@@ -349,6 +487,14 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
 
   const handleFundWorkerWageEscrow = async () => {
     const wReq = workerRequests.find((w) => w.id === selectedWorkerReqId) || workerRequests[0];
+    if (!wReq) return;
+    const selectedWorker =
+      directoryWallets.find((w) => w.userId === workerRecipientId) ||
+      directoryWallets.find((w) => w.role === 'Worker');
+    if (!selectedWorker && !workerRecipientName.trim()) {
+      setErrorMsg('Please select or enter a registered Farm Worker recipient.');
+      return;
+    }
     setEscrowBusy(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -360,11 +506,12 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
           action: 'FUND_WORKER_ESCROW',
           farmerId: userId,
           farmerName: userName,
-          workerId: 'worker_musa_1',
-          workerName: workerRecipientName,
-          workerRequestId: wReq?.id || 'wrk_req_1',
+          workerId: selectedWorker?.userId || workerRecipientId || wReq.hirerId,
+          workerName: workerRecipientName.trim() || selectedWorker?.displayName || 'Farm Worker',
+          workerWalletAddress: selectedWorker?.walletAddress || '',
+          workerRequestId: wReq.id,
           jobTitle:
-            wReq?.jobTitle ||
+            wReq.jobTitle ||
             `${calcWorkersCount} Workers @ ₦${calcWagePerWorkerNaira.toLocaleString('en-NG')}`,
           agreedWage: wageCalculation.totalObligationNaira,
           paymentAsset: 'USDC',
@@ -689,6 +836,70 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
               </div>
             ) : (
               <form onSubmit={handleSendPayment} className="mt-4 space-y-4">
+                {prefillPayment && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-[#EAF6EC] px-3.5 py-2.5 text-xs text-[#116B32]">
+                    <div>
+                      <span className="font-bold">
+                        Prefilled Settlement: {prefillPayment.transactionType || 'USDC Payment'}
+                      </span>
+                      {prefillPayment.recipientName && (
+                        <span> · Recipient: {prefillPayment.recipientName}</span>
+                      )}
+                      {prefillPayment.amountNaira ? (
+                        <span>
+                          {' '}
+                          (≈ ₦{prefillPayment.amountNaira.toLocaleString('en-NG')} @ 1600 NGN/USDC)
+                        </span>
+                      ) : null}
+                    </div>
+                    {onClearPrefill && (
+                      <button
+                        type="button"
+                        onClick={onClearPrefill}
+                        className="font-bold text-[#142318] underline"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label
+                    htmlFor="stellar-directory-recipient"
+                    className="block text-xs font-semibold text-slate-700"
+                  >
+                    Select FarmFund Recipient (Farmer / Worker / Supervisor / Sponsor)
+                  </label>
+                  <select
+                    id="stellar-directory-recipient"
+                    value={selectedDirectoryUserId}
+                    onChange={(e) => {
+                      const uid = e.target.value;
+                      setSelectedDirectoryUserId(uid);
+                      const found = directoryWallets.find((w) => w.userId === uid);
+                      if (found) {
+                        setRecipientAddress(found.walletAddress);
+                      }
+                    }}
+                    className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-[#159B42] focus:outline-hidden"
+                  >
+                    <option value="">
+                      -- Choose registered FarmFund user (or paste G... address below) --
+                    </option>
+                    {directoryWallets.map((dw) => (
+                      <option key={dw.userId} value={dw.userId}>
+                        {dw.displayName} ({dw.role}) ·{' '}
+                        {dw.status === 'Active'
+                          ? dw.hasUsdcTrustline
+                            ? 'USDC Ready'
+                            : 'Active (No USDC Trustline)'
+                          : 'Unactivated'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div>
                   <label
                     htmlFor="stellar-recipient"
@@ -785,8 +996,55 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
             )}
           </div>
 
-          {/* Right Column: NGN On/Off-Ramp Honest Status + Recovery & Security */}
+          {/* Right Column: Testnet Circle USDC Acquisition + NGN Status + Security */}
           <div className="space-y-4 lg:col-span-5">
+            {!isReadOnlyWalletRole && wallet?.network === 'TESTNET' && wallet?.status === 'Active' && (
+              <div className="rounded-2xl border border-emerald-900/15 bg-white p-5">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-[#142318]">
+                    Acquire Testnet Circle USDC (Stellar SDEX)
+                  </h3>
+                  <span className="rounded-md bg-[#EAF6EC] px-2 py-0.5 font-mono text-[10px] font-bold text-[#116B32]">
+                    XLM → USDC
+                  </span>
+                </div>
+                <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+                  Swap Testnet XLM from your active reserve into genuine Circle Testnet{' '}
+                  <code className="font-mono">USDC</code> via Stellar Testnet SDEX to test
+                  sponsorship disbursements, worker wages, and acceptance fee bonds.
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {['25', '50', '100', '250'].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setSwapUsdcAmount(preset)}
+                      className={`rounded-lg border px-2.5 py-1 font-mono text-[11px] font-bold transition-colors ${
+                        swapUsdcAmount === preset
+                          ? 'border-[#159B42] bg-[#EAF6EC] text-[#116B32]'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {preset} USDC
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    disabled={swappingUsdc}
+                    onClick={() => void handleSwapTestnetUsdc(Number(swapUsdcAmount) || 50)}
+                    className="ml-auto inline-flex items-center gap-1.5 rounded-xl bg-[#159B42] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#116B32] disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>
+                      {swappingUsdc
+                        ? 'Swapping on SDEX...'
+                        : `Acquire ${Number(swapUsdcAmount) || 50} USDC`}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-bold text-[#142318]">
@@ -907,9 +1165,76 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
               Soroban Escrow Contract ({sorobanContractId.slice(0, 10)}...
               {sorobanContractId.slice(-6)}):
             </span>{' '}
-            Sponsor 30% Farm Support Escrows and Direct Farm Worker Wage Escrows (0% Sponsor
-            Deduction) are strictly isolated on-chain and in accounting records.
+            Sponsor 30% Farm Support Escrows, Direct Farm Worker Wage Escrows (0% Sponsor
+            Deduction), and Anti-Absconding Acceptance Fee Bonds are strictly isolated on-chain and
+            in accounting records.
           </div>
+
+          {acceptanceFees.length > 0 && (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50/70 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
+                    Anti-Absconding Commitment Bond (5% · ₦1,000–₦25,000 in USDC)
+                  </span>
+                  <h3 className="mt-0.5 text-sm font-bold text-[#142318]">
+                    Acceptance Fee Escrows ({acceptanceFees.length})
+                  </h3>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                {acceptanceFees.map((fee) => (
+                  <div
+                    key={fee.id}
+                    className="rounded-xl border border-amber-200 bg-white p-3.5 text-xs"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-slate-900">
+                        {fee.agreementTitle} ({fee.obligorRole})
+                      </span>
+                      <span className="rounded-md bg-[#EAF6EC] px-2 py-0.5 font-mono text-[10px] font-bold text-[#116B32]">
+                        {fee.status}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-slate-600">
+                      Obligor: <strong>{fee.obligorName}</strong> → Beneficiary:{' '}
+                      <strong>{fee.beneficiaryName}</strong>
+                    </p>
+                    <p className="mt-1 font-mono font-bold text-[#116B32]">
+                      Bond: {fee.feeAmountUsdc.toFixed(2)} USDC (₦
+                      {fee.feeAmountNaira.toLocaleString('en-NG')})
+                    </p>
+                    {fee.status === 'Pending Deposit' &&
+                      fee.obligorId === userId &&
+                      onLockAcceptanceFee && (
+                        <button
+                          type="button"
+                          disabled={escrowBusy}
+                          onClick={async () => {
+                            setEscrowBusy(true);
+                            try {
+                              await onLockAcceptanceFee(fee.id);
+                              setSuccessMsg(
+                                `Acceptance Fee (${fee.feeAmountUsdc.toFixed(2)} USDC) locked in escrow. 100% refundable upon verified completion.`
+                              );
+                            } catch (err: unknown) {
+                              setErrorMsg(
+                                err instanceof Error ? err.message : 'Unable to lock acceptance fee.'
+                              );
+                            } finally {
+                              setEscrowBusy(false);
+                            }
+                          }}
+                          className="mt-2.5 rounded-lg bg-[#159B42] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#116B32]"
+                        >
+                          Lock Acceptance Fee ({fee.feeAmountUsdc.toFixed(2)} USDC)
+                        </button>
+                      )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             {/* System A: Sponsor-to-Farmer 30% Support Escrow */}
@@ -1112,12 +1437,26 @@ export const StellarWalletDashboard: React.FC<StellarWalletDashboardProps> = ({
                     <label className="block text-[11px] font-semibold text-slate-700">
                       Worker Recipient
                     </label>
-                    <input
-                      type="text"
-                      value={workerRecipientName}
-                      onChange={(e) => setWorkerRecipientName(e.target.value)}
+                    <select
+                      value={workerRecipientId}
+                      disabled={isReadOnlyWalletRole}
+                      onChange={(e) => {
+                        const uid = e.target.value;
+                        setWorkerRecipientId(uid);
+                        const match = directoryWallets.find((w) => w.userId === uid);
+                        if (match) setWorkerRecipientName(match.displayName);
+                      }}
                       className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs"
-                    />
+                    >
+                      <option value="">Select Farm Worker...</option>
+                      {directoryWallets
+                        .filter((w) => w.role === 'Worker')
+                        .map((w) => (
+                          <option key={w.userId} value={w.userId}>
+                            {w.displayName} ({w.status})
+                          </option>
+                        ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700">

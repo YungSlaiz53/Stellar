@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Express, Request, Response } from 'express';
 import type {
+  AcceptanceFeeRecord,
   AdminAuditLog,
   Conversation,
   DirectMessage,
@@ -34,8 +35,10 @@ import type {
 } from './src/types/farmfund';
 import {
   acceptSponsorAgreementParty,
+  calculateAcceptanceFee,
   canRoleExecuteWalletTransfer,
   canSupervisorAccessProject,
+  evaluateAcceptanceFeeTransition,
   evaluateProfileUpdatePermissions,
   evaluateWorkerPaymentTransition,
   validateRegistrationPayload,
@@ -79,6 +82,7 @@ export interface PlatformDatabaseState {
   disputes: DisputeRecord[];
   reviews: ReviewRecord[];
   adminAuditLogs: AdminAuditLog[];
+  acceptanceFees: AcceptanceFeeRecord[];
   platformSettings: PlatformSettings;
 }
 
@@ -114,6 +118,7 @@ function createEmptyPlatformState(): PlatformDatabaseState {
     disputes: [],
     reviews: [],
     adminAuditLogs: [],
+    acceptanceFees: [],
     platformSettings: {
       id: 'default',
       platformName: 'FarmFund',
@@ -516,6 +521,13 @@ function buildRoleScopedSnapshot(userId: string, role: UserRole) {
           supportAgreements.some((a) => a.id === u.agreementId)
         );
 
+  const acceptanceFees =
+    role === 'Admin'
+      ? platformState.acceptanceFees
+      : platformState.acceptanceFees.filter(
+          (f) => f.obligorId === userId || f.beneficiaryId === userId
+        );
+
   return {
     user,
     users: role === 'Admin' ? allUsers : [],
@@ -538,6 +550,7 @@ function buildRoleScopedSnapshot(userId: string, role: UserRole) {
     messages,
     notifications,
     supportUpdates,
+    acceptanceFees,
     verificationApplications:
       role === 'Admin'
         ? platformState.verificationApplications
@@ -551,7 +564,73 @@ function buildRoleScopedSnapshot(userId: string, role: UserRole) {
   };
 }
 
-export function registerPlatformRoutes(app: Express): void {
+export interface PlatformStellarHooks {
+  onProvisionUserWallet?: (params: {
+    userId: string;
+    role: UserRole;
+    sponsorType?: 'individual' | 'organisation';
+    displayName: string;
+  }) => void;
+  onExecuteAcceptanceFeeSettlement?: (params: {
+    action: 'LOCK' | 'REFUND' | 'FORFEIT';
+    fee: AcceptanceFeeRecord;
+  }) => Promise<{ transactionHash: string; onChain: boolean }>;
+}
+
+function createAcceptanceFeeRecordIfMissing(params: {
+  obligorId: string;
+  obligorName: string;
+  obligorRole: 'Worker' | 'Farmer';
+  beneficiaryId: string;
+  beneficiaryName: string;
+  agreementType: 'WorkerHiring' | 'SponsorSupport';
+  agreementId: string;
+  agreementTitle: string;
+  agreedPrincipalNaira: number;
+}): AcceptanceFeeRecord {
+  const existing = platformState.acceptanceFees.find(
+    (f) => f.agreementId === params.agreementId && f.obligorId === params.obligorId
+  );
+  if (existing) return existing;
+
+  const calc = calculateAcceptanceFee({
+    principalNaira: params.agreedPrincipalNaira,
+    obligorRole: params.obligorRole,
+  });
+  const nowIso = new Date().toISOString();
+  const record: AcceptanceFeeRecord = {
+    id: `accfee_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+    ownerId: params.obligorId,
+    obligorId: params.obligorId,
+    obligorName: params.obligorName,
+    obligorRole: params.obligorRole,
+    beneficiaryId: params.beneficiaryId,
+    beneficiaryName: params.beneficiaryName,
+    agreementType: params.agreementType,
+    agreementId: params.agreementId,
+    agreementTitle: params.agreementTitle,
+    agreedPrincipalNaira: calc.agreedPrincipalNaira,
+    feeAmountNaira: calc.feeAmountNaira,
+    feeAmountUsdc: calc.feeAmountUsdc,
+    assetCode: 'USDC',
+    status: 'Pending Deposit',
+    escrowReference: `FF-BOND-${params.agreementId.slice(-6).toUpperCase()}`,
+    transactionHash: 'PENDING_DEPOSIT',
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+  platformState.acceptanceFees.unshift(record);
+  pushNotification({
+    userId: params.obligorId,
+    title: `Acceptance Fee Required (${record.feeAmountUsdc.toFixed(2)} USDC)`,
+    body: `Lock your refundable ${record.feeAmountUsdc.toFixed(2)} USDC (₦${record.feeAmountNaira.toLocaleString('en-NG')}) commitment bond for "${record.agreementTitle}". Returned 100% upon completion; protects against absconding.`,
+    category: 'Acceptance Fee',
+    relatedId: record.id,
+  });
+  return record;
+}
+
+export function registerPlatformRoutes(app: Express, hooks?: PlatformStellarHooks): void {
   // 1. Public Homepage Stats (strictly real counts only — never fabricated)
   app.get('/api/platform/public-summary', (_req: Request, res: Response) => {
     res.json({
@@ -799,6 +878,13 @@ export function registerPlatformRoutes(app: Express): void {
       targetCollection: 'users',
       targetId: userId,
       summary: `New ${role}${sponsorType ? ` (${sponsorType})` : ''} registered with status Pending Verification.`,
+    });
+
+    hooks?.onProvisionUserWallet?.({
+      userId,
+      role,
+      sponsorType,
+      displayName,
     });
 
     savePlatformState();
@@ -1349,10 +1435,21 @@ export function registerPlatformRoutes(app: Express): void {
       updatedAt: nowIso,
     };
     platformState.supportAgreements.unshift(agreement);
+    const farmerAcceptanceFee = createAcceptanceFeeRecordIfMissing({
+      obligorId: farmer.id,
+      obligorName: farmer.fullName,
+      obligorRole: 'Farmer',
+      beneficiaryId: offer.sponsorId,
+      beneficiaryName: offer.sponsorName,
+      agreementType: 'SponsorSupport',
+      agreementId: agreement.id,
+      agreementTitle: agreement.requestTitle,
+      agreedPrincipalNaira: agreement.contributionValueNaira || 100000,
+    });
     pushNotification({
       userId: offer.sponsorId,
       title: `Support Offer Accepted by ${farmer.fullName}`,
-      body: `"${offer.title}" is now an Active Support Agreement.`,
+      body: `"${offer.title}" is now an Active Support Agreement. Farmer Acceptance Fee (${farmerAcceptanceFee.feeAmountUsdc.toFixed(2)} USDC) generated.`,
       category: 'Agreement',
       relatedId: agreement.id,
     });
@@ -1360,6 +1457,7 @@ export function registerPlatformRoutes(app: Express): void {
     res.json({
       offer,
       agreement,
+      acceptanceFee: farmerAcceptanceFee,
       snapshot: buildRoleScopedSnapshot(farmer.id, farmer.role),
     });
   });
@@ -1399,10 +1497,21 @@ export function registerPlatformRoutes(app: Express): void {
         parentReq.status = 'Active Support';
         parentReq.updatedAt = updated.updatedAt;
       }
+      createAcceptanceFeeRecordIfMissing({
+        obligorId: updated.farmerId,
+        obligorName: updated.farmerName,
+        obligorRole: 'Farmer',
+        beneficiaryId: updated.sponsorId,
+        beneficiaryName: updated.sponsorName,
+        agreementType: 'SponsorSupport',
+        agreementId: updated.id,
+        agreementTitle: updated.requestTitle,
+        agreedPrincipalNaira: updated.contributionValueNaira || 100000,
+      });
       pushNotification({
         userId: party === 'Farmer' ? updated.sponsorId : updated.farmerId,
         title: `Agreement Activated: ${updated.requestTitle}`,
-        body: 'Both Farmer and Sponsor have explicitly accepted this agreement.',
+        body: 'Both Farmer and Sponsor have explicitly accepted this agreement. Anti-absconding Acceptance Fee created for Farmer.',
         category: 'Agreement',
         relatedId: updated.id,
       });
@@ -1413,6 +1522,80 @@ export function registerPlatformRoutes(app: Express): void {
       agreement: updated,
       snapshot: buildRoleScopedSnapshot(actor.id, actor.role),
     });
+  });
+
+  // Mark an Active Support Agreement as Completed and auto-refund locked Farmer Acceptance Fee
+  app.post('/api/agreements/support/:agreementId/complete', async (req: Request, res: Response) => {
+    const { agreementId } = req.params;
+    const { actorId, notes } = req.body as { actorId: string; notes?: string };
+    const actor = platformState.users[actorId];
+    const agr = platformState.supportAgreements.find((a) => a.id === agreementId);
+    if (!actor || !agr || (actor.id !== agr.sponsorId && actor.role !== 'Admin')) {
+      res.status(403).json({
+        error: 'Only the agreement Sponsor or an authorised Admin can mark a support agreement completed.',
+      });
+      return;
+    }
+    if (agr.status === 'Completed') {
+      res.status(409).json({ error: 'Support agreement is already marked Completed.' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    agr.status = 'Completed';
+    agr.updatedAt = nowIso;
+    agr.historyLog.push(
+      `${nowIso.slice(0, 10)}: ${actor.fullName} verified fulfilment & marked support agreement Completed.${notes ? ` Note: ${notes}` : ''}`
+    );
+
+    const parentReq = platformState.assistanceRequests.find((r) => r.id === agr.requestId);
+    if (parentReq) {
+      parentReq.status = 'Completed';
+      parentReq.updatedAt = nowIso;
+    }
+
+    const feeIdx = platformState.acceptanceFees.findIndex(
+      (f) => f.agreementId === agr.id && f.status === 'Locked in Escrow'
+    );
+    if (feeIdx !== -1) {
+      let settlementHash = 'COMPLETED_REFUND';
+      if (hooks?.onExecuteAcceptanceFeeSettlement) {
+        const resSettle = await hooks.onExecuteAcceptanceFeeSettlement({
+          action: 'REFUND',
+          fee: platformState.acceptanceFees[feeIdx],
+        });
+        settlementHash = resSettle.transactionHash;
+      }
+      const evalRefund = evaluateAcceptanceFeeTransition({
+        record: platformState.acceptanceFees[feeIdx],
+        action: 'REFUND_ON_COMPLETION',
+        actorId: actor.id,
+        actorRole: actor.role,
+        timestampIso: nowIso,
+        settlementHash,
+      });
+      if (evalRefund.allowed) {
+        platformState.acceptanceFees[feeIdx] = evalRefund.nextRecord;
+        pushNotification({
+          userId: evalRefund.nextRecord.obligorId,
+          title: `Acceptance Fee Refunded (${evalRefund.nextRecord.feeAmountUsdc.toFixed(2)} USDC)`,
+          body: `Support agreement "${agr.requestTitle}" completed cleanly. Your acceptance fee has been released back to you.`,
+          category: 'Acceptance Fee',
+          relatedId: evalRefund.nextRecord.id,
+        });
+      }
+    }
+
+    pushNotification({
+      userId: agr.farmerId,
+      title: `Support Agreement Completed: ${agr.requestTitle}`,
+      body: `${actor.fullName} marked the support agreement Completed.`,
+      category: 'Agreement',
+      relatedId: agr.id,
+    });
+
+    savePlatformState();
+    res.json({ agreement: agr, snapshot: buildRoleScopedSnapshot(actor.id, actor.role) });
   });
 
   // Toggle supervision flag on an Active Support Agreement (only before lock or mutually authorised)
@@ -1674,6 +1857,18 @@ export function registerPlatformRoutes(app: Express): void {
     platformState.workerAgreements.unshift(agreement);
     platformState.workerPayments.unshift(payment);
 
+    const workerAcceptanceFee = createAcceptanceFeeRecordIfMissing({
+      obligorId: targetApp.workerId,
+      obligorName: targetApp.workerName,
+      obligorRole: 'Worker',
+      beneficiaryId: targetApp.hirerId,
+      beneficiaryName: targetApp.hirerName,
+      agreementType: 'WorkerHiring',
+      agreementId: agrId,
+      agreementTitle: targetApp.jobTitle,
+      agreedPrincipalNaira: targetApp.proposedWageNaira,
+    });
+
     if (job) {
       job.workersHired = Math.min(job.workersNeeded, job.workersHired + 1);
       job.status = job.workersHired >= job.workersNeeded ? 'In Progress' : 'Hiring in Progress';
@@ -1683,7 +1878,7 @@ export function registerPlatformRoutes(app: Express): void {
     pushNotification({
       userId: targetApp.workerId,
       title: `Hired for "${targetApp.jobTitle}"`,
-      body: `${actor.fullName} selected you for ₦${targetApp.proposedWageNaira.toLocaleString('en-NG')} (0% sponsor deduction).`,
+      body: `${actor.fullName} selected you for ₦${targetApp.proposedWageNaira.toLocaleString('en-NG')} (0% sponsor deduction). Lock your ${workerAcceptanceFee.feeAmountUsdc.toFixed(2)} USDC refundable Acceptance Fee to confirm attendance.`,
       category: 'Job Application',
       relatedId: agreement.id,
     });
@@ -1693,12 +1888,13 @@ export function registerPlatformRoutes(app: Express): void {
       application: targetApp,
       agreement,
       payment,
+      acceptanceFee: workerAcceptanceFee,
       snapshot: buildRoleScopedSnapshot(actor.id, actor.role),
     });
   });
 
   // Worker Payment Settlement (Hirer confirms work completion + pays, Worker confirms receipt; 0% sponsor deduction)
-  app.post('/api/worker-payments/:paymentId/transition', (req: Request, res: Response) => {
+  app.post('/api/worker-payments/:paymentId/transition', async (req: Request, res: Response) => {
     const { paymentId } = req.params;
     const { actorId, action } = req.body as {
       actorId: string;
@@ -1741,6 +1937,38 @@ export function registerPlatformRoutes(app: Express): void {
       if (workerProf) {
         workerProf.completedJobsCount += 1;
         workerProf.updatedAt = nowIso;
+      }
+
+      const feeIdx = platformState.acceptanceFees.findIndex(
+        (f) => f.agreementId === updated.workerAgreementId && f.status === 'Locked in Escrow'
+      );
+      if (feeIdx !== -1) {
+        let settlementHash = 'AUTO_REFUND_ON_WORK_CONFIRMED';
+        if (hooks?.onExecuteAcceptanceFeeSettlement) {
+          const resSettle = await hooks.onExecuteAcceptanceFeeSettlement({
+            action: 'REFUND',
+            fee: platformState.acceptanceFees[feeIdx],
+          });
+          settlementHash = resSettle.transactionHash;
+        }
+        const evalRefund = evaluateAcceptanceFeeTransition({
+          record: platformState.acceptanceFees[feeIdx],
+          action: 'REFUND_ON_COMPLETION',
+          actorId: updated.hirerId || updated.farmerId,
+          actorRole: 'Sponsor',
+          timestampIso: nowIso,
+          settlementHash,
+        });
+        if (evalRefund.allowed) {
+          platformState.acceptanceFees[feeIdx] = evalRefund.nextRecord;
+          pushNotification({
+            userId: evalRefund.nextRecord.obligorId,
+            title: `Acceptance Fee Refunded (${evalRefund.nextRecord.feeAmountUsdc.toFixed(2)} USDC)`,
+            body: `Work "${updated.jobTitle}" confirmed complete & paid. Your acceptance fee is 100% refunded.`,
+            category: 'Acceptance Fee',
+            relatedId: evalRefund.nextRecord.id,
+          });
+        }
       }
     }
 
@@ -2336,6 +2564,257 @@ export function registerPlatformRoutes(app: Express): void {
     });
     savePlatformState();
     res.json({ dispute, snapshot: buildRoleScopedSnapshot(adminUser.id, 'Admin') });
+  });
+
+  // ============================================================================
+  // 11. ACCEPTANCE FEE ESCROW (ANTI-ABSCONDING BOND FOR WORKERS & FARMERS)
+  // ============================================================================
+  app.post('/api/acceptance-fees/:feeId/lock', async (req: Request, res: Response) => {
+    const { feeId } = req.params;
+    const { actorId } = req.body as { actorId: string };
+    const actor = platformState.users[actorId];
+    const idx = platformState.acceptanceFees.findIndex((f) => f.id === feeId);
+    if (!actor || idx === -1) {
+      res.status(404).json({ error: 'Acceptance fee record or user not found.' });
+      return;
+    }
+
+    const record = platformState.acceptanceFees[idx];
+    let txHash = 'COMMITMENT_ESCROW_LOCKED';
+    if (hooks?.onExecuteAcceptanceFeeSettlement) {
+      const settled = await hooks.onExecuteAcceptanceFeeSettlement({
+        action: 'LOCK',
+        fee: record,
+      });
+      txHash = settled.transactionHash;
+    }
+
+    const nowIso = new Date().toISOString();
+    const transition = evaluateAcceptanceFeeTransition({
+      record,
+      action: 'LOCK_FEE',
+      actorId: actor.id,
+      actorRole: actor.role,
+      timestampIso: nowIso,
+      settlementHash: txHash,
+    });
+
+    if (!transition.allowed) {
+      res.status(403).json({ error: transition.error });
+      return;
+    }
+
+    platformState.acceptanceFees[idx] = transition.nextRecord;
+    pushNotification({
+      userId: record.beneficiaryId,
+      title: `Acceptance Fee Locked by ${record.obligorName}`,
+      body: `${record.obligorName} (${record.obligorRole}) locked ${record.feeAmountUsdc.toFixed(2)} USDC commitment bond for "${record.agreementTitle}".`,
+      category: 'Acceptance Fee',
+      relatedId: record.id,
+    });
+    savePlatformState();
+    res.json({
+      acceptanceFee: transition.nextRecord,
+      snapshot: buildRoleScopedSnapshot(actor.id, actor.role),
+    });
+  });
+
+  app.post('/api/acceptance-fees/:feeId/resolve', async (req: Request, res: Response) => {
+    const { feeId } = req.params;
+    const { actorId, action, reason } = req.body as {
+      actorId: string;
+      action: 'REFUND_ON_COMPLETION' | 'FORFEIT_ABSCONDED' | 'DISPUTE';
+      reason?: string;
+    };
+
+    const actor = platformState.users[actorId];
+    const idx = platformState.acceptanceFees.findIndex((f) => f.id === feeId);
+    if (!actor || idx === -1) {
+      res.status(404).json({ error: 'Acceptance fee record or user not found.' });
+      return;
+    }
+
+    const record = platformState.acceptanceFees[idx];
+    const evalAction =
+      action === 'FORFEIT_ABSCONDED'
+        ? 'REPORT_ABSCONDED_AND_FORFEIT'
+        : action === 'DISPUTE'
+          ? 'DISPUTE'
+          : 'REFUND_ON_COMPLETION';
+
+    const nowIso = new Date().toISOString();
+    const preCheck = evaluateAcceptanceFeeTransition({
+      record,
+      action: evalAction,
+      actorId: actor.id,
+      actorRole: actor.role,
+      timestampIso: nowIso,
+      reason,
+    });
+
+    if (!preCheck.allowed) {
+      res.status(400).json({ error: preCheck.error });
+      return;
+    }
+
+    let settlementHash = preCheck.nextRecord.settlementHash || 'SETTLED';
+    if (hooks?.onExecuteAcceptanceFeeSettlement && action !== 'DISPUTE') {
+      const settled = await hooks.onExecuteAcceptanceFeeSettlement({
+        action: action === 'FORFEIT_ABSCONDED' ? 'FORFEIT' : 'REFUND',
+        fee: record,
+      });
+      settlementHash = settled.transactionHash;
+    }
+
+    const finalTransition = evaluateAcceptanceFeeTransition({
+      record,
+      action: evalAction,
+      actorId: actor.id,
+      actorRole: actor.role,
+      timestampIso: nowIso,
+      reason,
+      settlementHash,
+    });
+    platformState.acceptanceFees[idx] = finalTransition.nextRecord;
+
+    if (action === 'FORFEIT_ABSCONDED') {
+      const dispute: DisputeRecord = {
+        id: `disp_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`,
+        category: 'Acceptance Fee / Absconding',
+        referenceId: record.id,
+        title: `Absconding Claim & Acceptance Fee Forfeiture: ${record.obligorName}`,
+        raisedById: actor.id,
+        raisedByName: actor.fullName,
+        summary: `${record.obligorName} (${record.obligorRole}) reported absconded / gone into hiding on "${record.agreementTitle}". Acceptance fee (${record.feeAmountUsdc.toFixed(2)} USDC) forfeited to ${record.beneficiaryName}. Reason: ${reason?.trim()}`,
+        status: 'Under Mediation',
+        resolutionNotes: 'Acceptance fee forfeited to aggrieved sponsor/hirer; available for Admin review if appealed.',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+      platformState.disputes.unshift(dispute);
+
+      pushNotification({
+        userId: record.obligorId,
+        title: `Acceptance Fee Forfeited (${record.feeAmountUsdc.toFixed(2)} USDC)`,
+        body: `${actor.fullName} reported no-show/absconding on "${record.agreementTitle}". Reason: ${reason?.trim()}`,
+        category: 'Acceptance Fee',
+        relatedId: record.id,
+      });
+      pushAdminAudit({
+        actorId: actor.id,
+        actorName: actor.fullName,
+        actorRole: actor.role,
+        action: 'ACCEPTANCE_FEE_FORFEITED_ABSCONDED',
+        targetCollection: 'acceptanceFees',
+        targetId: record.id,
+        summary: `Forfeited ${record.feeAmountUsdc.toFixed(2)} USDC from ${record.obligorName} (${record.obligorRole}) to ${record.beneficiaryName}.`,
+      });
+    } else if (action === 'REFUND_ON_COMPLETION') {
+      pushNotification({
+        userId: record.obligorId,
+        title: `Acceptance Fee Refunded (${record.feeAmountUsdc.toFixed(2)} USDC)`,
+        body: `${actor.fullName} verified completion of "${record.agreementTitle}" and released your 100% refundable acceptance fee.`,
+        category: 'Acceptance Fee',
+        relatedId: record.id,
+      });
+    }
+
+    savePlatformState();
+    res.json({
+      acceptanceFee: finalTransition.nextRecord,
+      snapshot: buildRoleScopedSnapshot(actor.id, actor.role),
+    });
+  });
+
+  // ============================================================================
+  // 12. SPONSOR USDC PAYMENT RECORDING (FARM SPONSORSHIP / POST-WORK SETTLEMENTS)
+  // ============================================================================
+  app.post('/api/sponsor-payments/record', (req: Request, res: Response) => {
+    const {
+      sponsorId,
+      recipientId,
+      purpose,
+      amountUsdc,
+      amountNaira,
+      transactionHash,
+      relatedAgreementId,
+      relatedWorkerPaymentId,
+      note,
+    } = req.body as {
+      sponsorId: string;
+      recipientId: string;
+      purpose:
+        | 'FARM_SPONSORSHIP'
+        | 'POST_WORK_FARMER_SETTLEMENT'
+        | 'POST_WORK_WORKER_WAGE'
+        | 'SUPERVISION_FEE';
+      amountUsdc: number;
+      amountNaira?: number;
+      transactionHash?: string;
+      relatedAgreementId?: string;
+      relatedWorkerPaymentId?: string;
+      note?: string;
+    };
+
+    const sponsor = platformState.users[sponsorId];
+    const recipient = platformState.users[recipientId];
+    if (!sponsor || (sponsor.role !== 'Sponsor' && sponsor.role !== 'Farmer')) {
+      res.status(403).json({ error: 'Authorised Sponsor or Hirer account required.' });
+      return;
+    }
+    if (!recipient) {
+      res.status(404).json({ error: 'Recipient user not found.' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const cleanUsdc = Number(amountUsdc) || 0;
+    const cleanNaira = Number(amountNaira) || Math.round(cleanUsdc * 1600);
+
+    if (purpose === 'POST_WORK_WORKER_WAGE' && relatedWorkerPaymentId) {
+      const pIdx = platformState.workerPayments.findIndex((p) => p.id === relatedWorkerPaymentId);
+      if (pIdx !== -1 && platformState.workerPayments[pIdx].status === 'Pending Work Completion') {
+        platformState.workerPayments[pIdx] = evaluateWorkerPaymentTransition(
+          platformState.workerPayments[pIdx],
+          'FARMER_CONFIRM_WORK_AND_INITIATE',
+          nowIso
+        );
+      }
+    }
+
+    if (
+      (purpose === 'FARM_SPONSORSHIP' || purpose === 'POST_WORK_FARMER_SETTLEMENT') &&
+      relatedAgreementId
+    ) {
+      const agr = platformState.supportAgreements.find((a) => a.id === relatedAgreementId);
+      if (agr) {
+        agr.historyLog.push(
+          `${nowIso.slice(0, 10)}: ${sponsor.fullName} recorded ${purpose === 'FARM_SPONSORSHIP' ? 'Direct Farm Sponsorship Funds' : 'Post-Work Farmer Settlement'} of ${cleanUsdc.toFixed(2)} USDC (₦${cleanNaira.toLocaleString('en-NG')})${transactionHash ? ` [Stellar TX: ${transactionHash.slice(0, 12)}...]` : ''}.`
+        );
+        agr.updatedAt = nowIso;
+      }
+    }
+
+    const titleMap: Record<typeof purpose, string> = {
+      FARM_SPONSORSHIP: `Farm Sponsorship Funds Sent (${cleanUsdc.toFixed(2)} USDC)`,
+      POST_WORK_FARMER_SETTLEMENT: `Post-Work Farmer Settlement (${cleanUsdc.toFixed(2)} USDC)`,
+      POST_WORK_WORKER_WAGE: `Worker Wage USDC Payment Initiated (${cleanUsdc.toFixed(2)} USDC)`,
+      SUPERVISION_FEE: `Supervision Fee Received (${cleanUsdc.toFixed(2)} USDC)`,
+    };
+
+    pushNotification({
+      userId: recipient.id,
+      title: titleMap[purpose],
+      body: `${sponsor.fullName} initiated a ${cleanUsdc.toFixed(2)} USDC payment${note ? ` — ${note}` : ''}.`,
+      category: 'Wallet',
+      relatedId: relatedAgreementId || relatedWorkerPaymentId || transactionHash,
+    });
+
+    savePlatformState();
+    res.json({
+      recorded: true,
+      snapshot: buildRoleScopedSnapshot(sponsor.id, sponsor.role),
+    });
   });
 
   // Helper check exposed for tests / role boundary checks

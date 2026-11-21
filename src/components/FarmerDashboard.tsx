@@ -11,6 +11,7 @@ import {
   User,
 } from 'lucide-react';
 import {
+  AcceptanceFeeRecord,
   AssistanceType,
   Conversation,
   DirectMessage,
@@ -37,13 +38,14 @@ import {
 } from '../types/farmfund';
 import {
   calculateSponsorThirtyPercentShare,
+  computeUsdcFromNaira,
   validateSupportRequestDraft,
   validateWorkerRequestDraft,
 } from '../utils/farmfundLogic';
 import { PrimaryRoleTab, RoleDashboardShell } from './RoleDashboardShell';
 import { VerificationBanner } from './VerificationBanner';
 import { MessageRecipientOption, MessagingCenter } from './MessagingCenter';
-import { StellarWalletDashboard } from './StellarWalletDashboard';
+import { StellarWalletDashboard, type WalletPaymentPrefill } from './StellarWalletDashboard';
 
 interface FarmerDashboardProps {
   user: PlatformUser;
@@ -58,6 +60,7 @@ interface FarmerDashboardProps {
   workerApplications: WorkerApplication[];
   workerAgreements: WorkerAgreement[];
   workerPayments: WorkerPayment[];
+  acceptanceFees?: AcceptanceFeeRecord[];
   supervisionRequests: SupervisionRequest[];
   supervisionAssignments: SupervisionAssignment[];
   supervisionReports: SupervisionReport[];
@@ -77,6 +80,13 @@ interface FarmerDashboardProps {
     decision: 'HIRE' | 'DECLINE'
   ) => Promise<void>;
   onInitiateWorkerWagePayment: (paymentId: string) => Promise<void>;
+  onLockAcceptanceFee?: (feeId: string) => Promise<void>;
+  onResolveAcceptanceFee?: (
+    feeId: string,
+    action: 'REFUND_ON_COMPLETION' | 'FORFEIT_ABSCONDED' | 'DISPUTE',
+    reason?: string
+  ) => Promise<void>;
+  onRefreshSnapshot?: () => Promise<void>;
   onRequestSupervision: (params: {
     agreementId: string;
     agreementCategory: SupervisionRequest['agreementCategory'];
@@ -112,6 +122,7 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
   workerApplications,
   workerAgreements,
   workerPayments,
+  acceptanceFees = [],
   supervisionRequests,
   supervisionAssignments,
   supervisionReports,
@@ -125,6 +136,9 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
   onCreateWorkerJob,
   onRespondToWorkerApp,
   onInitiateWorkerWagePayment,
+  onLockAcceptanceFee,
+  onResolveAcceptanceFee,
+  onRefreshSnapshot,
   onRequestSupervision,
   onUpdateProfile,
   onSendMessage,
@@ -188,6 +202,14 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
 
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [walletPrefill, setWalletPrefill] = useState<WalletPaymentPrefill | null>(null);
+  const [abscondClaimFeeId, setAbscondClaimFeeId] = useState<string | null>(null);
+  const [abscondReason, setAbscondReason] = useState('');
+
+  const openWalletWithPrefill = (prefill: WalletPaymentPrefill) => {
+    setWalletPrefill(prefill);
+    setSubView('Wallet');
+  };
 
   // Editable Profile State
   const [fullName, setFullName] = useState(farmerProfile.fullName);
@@ -502,6 +524,27 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
               }`}
             >
               {feedback.text}
+            </div>
+          )}
+
+          {acceptanceFees.some((f) => f.status === 'Pending Deposit' && f.obligorId === user.id) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-950">
+              <div>
+                <p className="font-bold">
+                  Action Required: Lock Your Anti-Absconding Acceptance Fee (USDC)
+                </p>
+                <p className="mt-0.5 text-amber-900">
+                  Lock your 5% Farmer commitment bond for active sponsorship support. It is 100%
+                  refunded upon verified harvest/completion and only forfeited if a farmer absconds.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubView('Agreements & Supervision')}
+                className="rounded-xl bg-amber-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-amber-800"
+              >
+                Manage Acceptance Fee
+              </button>
             </div>
           )}
 
@@ -1138,7 +1181,7 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
                           <strong>{pay.workerName}</strong> · {pay.jobTitle} · ₦
                           {pay.amountNaira.toLocaleString('en-NG')}
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="font-mono font-bold text-[#116B32]">{pay.status}</span>
                           {pay.status === 'Pending Work Completion' && (
                             <button
@@ -1148,6 +1191,28 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
                               className="rounded-lg bg-[#159B42] px-3 py-1 font-bold text-white"
                             >
                               Confirm Work &amp; Pay Worker
+                            </button>
+                          )}
+                          {pay.status !== 'Confirmed Paid' && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openWalletWithPrefill({
+                                  recipientUserId: pay.workerId,
+                                  recipientName: pay.workerName,
+                                  amountUsdc: computeUsdcFromNaira(pay.amountNaira).toFixed(2),
+                                  amountNaira: pay.amountNaira,
+                                  assetCode: 'USDC',
+                                  transactionType: 'Post-Work Worker Wage USDC',
+                                  memoReference: `Wage ${pay.jobTitle}`.slice(0, 28),
+                                  purpose: 'POST_WORK_WORKER_WAGE',
+                                  relatedAgreementId: pay.workerAgreementId,
+                                  relatedWorkerPaymentId: pay.id,
+                                })
+                              }
+                              className="rounded-lg border border-emerald-700 bg-white px-3 py-1 font-bold text-[#116B32] hover:bg-[#EAF6EC]"
+                            >
+                              Pay Worker Wage (USDC)
                             </button>
                           )}
                         </div>
@@ -1162,6 +1227,181 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
           {/* 4. SUPPORT REQUESTS, AGREEMENTS & SUPERVISION */}
           {subView === 'Agreements & Supervision' && (
             <div className="space-y-6">
+              {acceptanceFees.length > 0 && (
+                <section className="rounded-2xl border border-amber-300 bg-amber-50/70 p-6">
+                  <h2 className="text-base font-bold text-[#243629]">
+                    Acceptance Fees — Anti-Absconding Bonds ({acceptanceFees.length})
+                  </h2>
+                  <p className="mt-1 text-xs text-amber-950">
+                    Farmers and hired Workers lock a 5% refundable USDC commitment bond (₦1,000–₦25,000)
+                    to prevent absconding or going into hiding. Refunded 100% upon verified
+                    completion.
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    {acceptanceFees.map((fee) => (
+                      <div
+                        key={fee.id}
+                        className="rounded-xl border border-amber-200 bg-white p-4 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-[#243629]">
+                              {fee.agreementTitle} · {fee.obligorRole}: {fee.obligorName} →{' '}
+                              {fee.beneficiaryName}
+                            </p>
+                            <p className="mt-0.5 font-mono font-bold text-[#116B32]">
+                              Bond: {fee.feeAmountUsdc.toFixed(2)} USDC (₦
+                              {fee.feeAmountNaira.toLocaleString('en-NG')})
+                            </p>
+                            {fee.abscondedReason && (
+                              <p className="mt-1 text-red-800">Note: {fee.abscondedReason}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-md bg-[#EAF6EC] px-2.5 py-1 font-mono font-bold text-[#116B32]">
+                              {fee.status}
+                            </span>
+                            {fee.status === 'Pending Deposit' &&
+                              fee.obligorId === user.id &&
+                              onLockAcceptanceFee && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={async () => {
+                                    setBusy(true);
+                                    setFeedback(null);
+                                    try {
+                                      await onLockAcceptanceFee(fee.id);
+                                      setFeedback({
+                                        type: 'ok',
+                                        text: `Acceptance Fee (${fee.feeAmountUsdc.toFixed(2)} USDC) locked in escrow.`,
+                                      });
+                                    } catch (err: unknown) {
+                                      setFeedback({
+                                        type: 'err',
+                                        text:
+                                          err instanceof Error
+                                            ? err.message
+                                            : 'Unable to lock acceptance fee.',
+                                      });
+                                    } finally {
+                                      setBusy(false);
+                                    }
+                                  }}
+                                  className="rounded-lg bg-[#159B42] px-3.5 py-1.5 font-bold text-white hover:bg-[#116B32]"
+                                >
+                                  Lock Acceptance Fee ({fee.feeAmountUsdc.toFixed(2)} USDC)
+                                </button>
+                              )}
+                            {fee.status === 'Locked in Escrow' &&
+                              fee.beneficiaryId === user.id &&
+                              onResolveAcceptanceFee && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={async () => {
+                                      setBusy(true);
+                                      try {
+                                        await onResolveAcceptanceFee(
+                                          fee.id,
+                                          'REFUND_ON_COMPLETION'
+                                        );
+                                        setFeedback({
+                                          type: 'ok',
+                                          text: `Refunded ${fee.feeAmountUsdc.toFixed(2)} USDC acceptance fee to ${fee.obligorName}.`,
+                                        });
+                                      } catch (err: unknown) {
+                                        setFeedback({
+                                          type: 'err',
+                                          text:
+                                            err instanceof Error
+                                              ? err.message
+                                              : 'Refund failed.',
+                                        });
+                                      } finally {
+                                        setBusy(false);
+                                      }
+                                    }}
+                                    className="rounded-lg bg-[#159B42] px-3 py-1.5 font-bold text-white"
+                                  >
+                                    Refund on Completion
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setAbscondClaimFeeId(fee.id);
+                                      setAbscondReason('');
+                                    }}
+                                    className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 font-bold text-red-800"
+                                  >
+                                    Report Absconded / Claim Fee
+                                  </button>
+                                </>
+                              )}
+                          </div>
+                        </div>
+                        {abscondClaimFeeId === fee.id && onResolveAcceptanceFee && (
+                          <div className="mt-3 space-y-2 rounded-xl border border-red-200 bg-red-50 p-3">
+                            <label className="block font-bold text-red-900">
+                              Document Absconding / No-Show Reason (min 10 characters):
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={abscondReason}
+                              onChange={(e) => setAbscondReason(e.target.value)}
+                              placeholder="Describe missed schedule, unreachable contact, or unfulfilled work..."
+                              className="w-full rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={busy || abscondReason.trim().length < 10}
+                                onClick={async () => {
+                                  setBusy(true);
+                                  try {
+                                    await onResolveAcceptanceFee(
+                                      fee.id,
+                                      'FORFEIT_ABSCONDED',
+                                      abscondReason.trim()
+                                    );
+                                    setAbscondClaimFeeId(null);
+                                    setAbscondReason('');
+                                    setFeedback({
+                                      type: 'ok',
+                                      text: `Acceptance fee (${fee.feeAmountUsdc.toFixed(2)} USDC) forfeited and Admin mediation dispute logged.`,
+                                    });
+                                  } catch (err: unknown) {
+                                    setFeedback({
+                                      type: 'err',
+                                      text:
+                                        err instanceof Error ? err.message : 'Claim failed.',
+                                    });
+                                  } finally {
+                                    setBusy(false);
+                                  }
+                                }}
+                                className="rounded-lg bg-red-700 px-3 py-1.5 font-bold text-white disabled:opacity-50"
+                              >
+                                Confirm Forfeiture Claim
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAbscondClaimFeeId(null)}
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-bold text-[#243629]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section className="rounded-2xl border border-slate-200 bg-white p-6">
                 <h2 className="text-base font-bold text-[#243629]">
                   My Support Requests ({supportRequests.length}) &amp; Support Agreements (
@@ -1201,15 +1441,41 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
                           </p>
                           <p className="text-[#718071]">
                             {agr.sponsorContribution} · {agr.shareType} ({agr.status})
+                            {agr.assignedSupervisorName
+                              ? ` · Supervisor: ${agr.assignedSupervisorName}`
+                              : ''}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => onOpenAgreementModal(agr)}
-                          className="rounded-xl bg-[#159B42] px-4 py-2 font-bold text-white hover:bg-[#116B32]"
-                        >
-                          {agr.farmerAccepted ? 'View Agreement' : 'Review & Accept Agreement'}
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => onOpenAgreementModal(agr)}
+                            className="rounded-xl bg-[#159B42] px-4 py-2 font-bold text-white hover:bg-[#116B32]"
+                          >
+                            {agr.farmerAccepted ? 'View Agreement' : 'Review & Accept Agreement'}
+                          </button>
+                          {agr.assignedSupervisorId && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openWalletWithPrefill({
+                                  recipientUserId: agr.assignedSupervisorId,
+                                  recipientName:
+                                    agr.assignedSupervisorName || 'Assigned Supervisor',
+                                  amountUsdc: '15.00',
+                                  assetCode: 'USDC',
+                                  transactionType: 'Supervision Fee USDC',
+                                  memoReference: `Supv ${agr.requestTitle}`.slice(0, 28),
+                                  purpose: 'SUPERVISION_FEE',
+                                  relatedAgreementId: agr.id,
+                                })
+                              }
+                              className="rounded-xl border border-emerald-300 bg-[#EAF6EC] px-3 py-2 font-bold text-[#116B32]"
+                            >
+                              Pay Supervisor (USDC)
+                            </button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1320,11 +1586,40 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
                   </div>
                 )}
 
-                {supervisionRequests.length > 0 && (
-                  <p className="mt-3 text-[11px] text-[#718071]">
-                    Invitations sent: {supervisionRequests.length} · Accepted assignments:{' '}
-                    {supervisionAssignments.length}
-                  </p>
+                {supervisionAssignments.length > 0 && (
+                  <div className="mt-4 space-y-2 border-t border-slate-100 pt-3">
+                    <p className="text-[11px] font-bold text-[#718071]">
+                      Assigned Supervisors ({supervisionAssignments.length})
+                    </p>
+                    {supervisionAssignments.map((asg) => (
+                      <div
+                        key={asg.id}
+                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#F5F8F3] px-3 py-2 text-xs"
+                      >
+                        <span>
+                          <strong>{asg.supervisorName}</strong> · {asg.projectTitle} ({asg.status})
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openWalletWithPrefill({
+                              recipientUserId: asg.supervisorId,
+                              recipientName: asg.supervisorName,
+                              amountUsdc: '15.00',
+                              assetCode: 'USDC',
+                              transactionType: 'Supervision Fee USDC',
+                              memoReference: `Supv ${asg.projectTitle}`.slice(0, 28),
+                              purpose: 'SUPERVISION_FEE',
+                              relatedAgreementId: asg.agreementId,
+                            })
+                          }
+                          className="rounded-lg border border-emerald-300 bg-white px-3 py-1 font-bold text-[#116B32]"
+                        >
+                          Pay Supervisor (USDC)
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </section>
             </div>
@@ -1338,6 +1633,11 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
               role="Farmer"
               supportRequests={supportRequests}
               workerRequests={myFarmerJobs}
+              acceptanceFees={acceptanceFees}
+              prefillPayment={walletPrefill}
+              onClearPrefill={() => setWalletPrefill(null)}
+              onPaymentRecorded={onRefreshSnapshot}
+              onLockAcceptanceFee={onLockAcceptanceFee}
             />
           )}
         </div>

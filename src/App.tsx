@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  AcceptanceFeeRecord,
   AdminAuditLog,
   AssistanceType,
   Conversation,
@@ -56,6 +57,7 @@ interface PlatformSnapshot {
   supportAgreements: SponsorFundingAgreement[];
   workerAgreements: WorkerAgreement[];
   workerPayments: WorkerPayment[];
+  acceptanceFees: AcceptanceFeeRecord[];
   supervisionRequests: SupervisionRequest[];
   supervisionAssignments: SupervisionAssignment[];
   supervisionReports: SupervisionReport[];
@@ -415,6 +417,63 @@ export default function App() {
     setSnapshot(data.snapshot as unknown as PlatformSnapshot);
   };
 
+  const handleLockAcceptanceFee = async (feeId: string) => {
+    if (!currentUser) return;
+    const data = await apiJson<{ snapshot: Record<string, unknown> }>(
+      `/api/acceptance-fees/${encodeURIComponent(feeId)}/lock`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ actorId: currentUser.id }),
+      }
+    );
+    setSnapshot(data.snapshot as unknown as PlatformSnapshot);
+  };
+
+  const handleResolveAcceptanceFee = async (
+    feeId: string,
+    action: 'REFUND_ON_COMPLETION' | 'FORFEIT_ABSCONDED' | 'DISPUTE',
+    reason?: string
+  ) => {
+    if (!currentUser) return;
+    const data = await apiJson<{ snapshot: Record<string, unknown> }>(
+      `/api/acceptance-fees/${encodeURIComponent(feeId)}/resolve`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          actorId: currentUser.id,
+          action,
+          reason,
+        }),
+      }
+    );
+    setSnapshot(data.snapshot as unknown as PlatformSnapshot);
+  };
+
+  const handleCompleteSupportAgreement = async (agreementId: string, notes?: string) => {
+    if (!currentUser) return;
+    const data = await apiJson<{ snapshot: Record<string, unknown> }>(
+      `/api/agreements/support/${encodeURIComponent(agreementId)}/complete`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          actorId: currentUser.id,
+          notes,
+        }),
+      }
+    );
+    setSnapshot(data.snapshot as unknown as PlatformSnapshot);
+  };
+
+  const handleRefreshPlatformSnapshot = async () => {
+    if (!currentUser) return;
+    const data = await apiJson<{ user: PlatformUser; snapshot: Record<string, unknown> }>(
+      `/api/platform/state?userId=${encodeURIComponent(currentUser.id)}`
+    );
+    if (data?.snapshot) {
+      setSnapshot(data.snapshot as unknown as PlatformSnapshot);
+    }
+  };
+
   // Supervision workflow
   const handleRequestSupervision = async (params: {
     agreementId: string;
@@ -572,6 +631,7 @@ export default function App() {
                 workerApplications={snapshot.workerApplications}
                 workerAgreements={snapshot.workerAgreements}
                 workerPayments={snapshot.workerPayments}
+                acceptanceFees={snapshot.acceptanceFees || []}
                 conversations={snapshot.conversations}
                 messages={snapshot.messages}
                 notifications={snapshot.notifications}
@@ -581,6 +641,7 @@ export default function App() {
                 onConfirmWageReceipt={(paymentId) =>
                   handleTransitionWorkerPayment(paymentId, 'WORKER_CONFIRM_RECEIPT')
                 }
+                onLockAcceptanceFee={handleLockAcceptanceFee}
                 onUpdateProfile={(patch) => handleUpdateProfile(patch)}
                 onSendMessage={handleSendMessage}
                 onMarkConversationRead={handleMarkConversationRead}
@@ -607,6 +668,7 @@ export default function App() {
                 workerApplications={snapshot.workerApplications}
                 workerAgreements={snapshot.workerAgreements}
                 workerPayments={snapshot.workerPayments}
+                acceptanceFees={snapshot.acceptanceFees || []}
                 supervisionRequests={snapshot.supervisionRequests}
                 supervisionAssignments={snapshot.supervisionAssignments}
                 supervisionReports={snapshot.supervisionReports}
@@ -622,6 +684,9 @@ export default function App() {
                 onInitiateWorkerWagePayment={(paymentId) =>
                   handleTransitionWorkerPayment(paymentId, 'FARMER_CONFIRM_WORK_AND_INITIATE')
                 }
+                onLockAcceptanceFee={handleLockAcceptanceFee}
+                onResolveAcceptanceFee={handleResolveAcceptanceFee}
+                onRefreshSnapshot={handleRefreshPlatformSnapshot}
                 onRequestSupervision={handleRequestSupervision}
                 onUpdateProfile={(patch) => handleUpdateProfile(patch)}
                 onSendMessage={handleSendMessage}
@@ -677,6 +742,7 @@ export default function App() {
                 workerApplications={snapshot.workerApplications}
                 workerAgreements={snapshot.workerAgreements}
                 workerPayments={snapshot.workerPayments}
+                acceptanceFees={snapshot.acceptanceFees || []}
                 supervisionRequests={snapshot.supervisionRequests}
                 supervisionAssignments={snapshot.supervisionAssignments}
                 supervisionReports={snapshot.supervisionReports}
@@ -687,11 +753,14 @@ export default function App() {
                 onSendOfferToFarmer={handleSendOfferToFarmer}
                 onRespondToSupportRequest={handleRespondToSupportRequest}
                 onOpenAgreementModal={setActiveAgreementModal}
+                onCompleteSupportAgreement={handleCompleteSupportAgreement}
                 onPublishWorkerJob={handlePublishWorkerJob}
                 onRespondToWorkerApp={handleRespondToWorkerApp}
                 onInitiateWorkerWagePayment={(paymentId) =>
                   handleTransitionWorkerPayment(paymentId, 'FARMER_CONFIRM_WORK_AND_INITIATE')
                 }
+                onResolveAcceptanceFee={handleResolveAcceptanceFee}
+                onRefreshSnapshot={handleRefreshPlatformSnapshot}
                 onRequestSupervision={handleRequestSupervision}
                 onUpdateProfile={(patch, orgPatch) => handleUpdateProfile(patch, orgPatch)}
                 onSendMessage={handleSendMessage}
@@ -723,6 +792,7 @@ export default function App() {
               supervisionAssignments={snapshot.supervisionAssignments}
               supervisionReports={snapshot.supervisionReports}
               workerPayments={snapshot.workerPayments}
+              acceptanceFees={snapshot.acceptanceFees || []}
               disputes={snapshot.disputes}
               adminAuditLogs={snapshot.adminAuditLogs}
               onReviewSponsorAgreement={setActiveAgreementModal}

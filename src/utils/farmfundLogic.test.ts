@@ -3,12 +3,15 @@ import assert from 'node:assert/strict';
 import { Keypair } from '@stellar/stellar-sdk';
 import {
   acceptSponsorAgreementParty,
+  calculateAcceptanceFee,
   calculateSponsorThirtyPercentShare,
   calculateWorkerWageSummary,
   calculateWorkerWageUsdcObligations,
   canAccessRoleDashboard,
   canRoleExecuteWalletTransfer,
   canSupervisorAccessProject,
+  computeUsdcFromNaira,
+  evaluateAcceptanceFeeTransition,
   evaluateProfileUpdatePermissions,
   evaluateWorkerPaymentTransition,
   isAllowedPublicRegistrationRole,
@@ -20,7 +23,7 @@ import {
   validateSupportRequestDraft,
   validateWorkerRequestDraft,
 } from './farmfundLogic';
-import { SponsorFundingAgreement, WorkerPayment } from '../types/farmfund';
+import { AcceptanceFeeRecord, SponsorFundingAgreement, WorkerPayment } from '../types/farmfund';
 
 test('30% Sponsor Share calculation works accurately for Produce, Farm Funds, and Standard Support', () => {
   const produceSplit = calculateSponsorThirtyPercentShare({
@@ -120,7 +123,7 @@ test('Users cannot change primary role, self-verify, and verified profile edits 
   assert.equal(adminVerify.allowed, true);
 });
 
-test('Supervisors can only access accepted, supervision-required, assigned/invited projects and cannot transfer wallet funds', () => {
+test('Supervisors can only access accepted, supervision-required, assigned/invited projects while owning an active wallet', () => {
   assert.equal(
     canSupervisorAccessProject({
       supervisorId: 'sup_1',
@@ -151,7 +154,7 @@ test('Supervisors can only access accepted, supervision-required, assigned/invit
     true
   );
 
-  assert.equal(canRoleExecuteWalletTransfer('Supervisor'), false);
+  assert.equal(canRoleExecuteWalletTransfer('Supervisor'), true);
   assert.equal(canRoleExecuteWalletTransfer('Admin'), false);
   assert.equal(canRoleExecuteWalletTransfer('Worker'), true);
   assert.equal(canRoleExecuteWalletTransfer('Farmer'), true);
@@ -354,3 +357,113 @@ test('Form validators allow explicit standard or 30% support and enforce worker 
   });
   assert.equal(validWorkerReq, null);
 });
+
+test('Acceptance Fee calculation & anti-absconding state machine work accurately for Workers and Farmers', () => {
+  assert.equal(computeUsdcFromNaira(160000, 1600), 100);
+
+  const workerFee = calculateAcceptanceFee({
+    principalNaira: 40000,
+    obligorRole: 'Worker',
+    ngnPerUsdcRate: 1600,
+  });
+  assert.equal(workerFee.feeAmountNaira, 2000);
+  assert.equal(workerFee.feeAmountUsdc, 1.25);
+
+  const cappedFarmerFee = calculateAcceptanceFee({
+    principalNaira: 2000000,
+    obligorRole: 'Farmer',
+    ngnPerUsdcRate: 1600,
+  });
+  assert.equal(cappedFarmerFee.feeAmountNaira, 25000);
+  assert.equal(cappedFarmerFee.feeAmountUsdc, 15.625);
+
+  const feeRecord: AcceptanceFeeRecord = {
+    id: 'accfee_1',
+    ownerId: 'worker_1',
+    obligorId: 'worker_1',
+    obligorName: 'Musa Danjuma',
+    obligorRole: 'Worker',
+    beneficiaryId: 'sponsor_1',
+    beneficiaryName: 'GreenHarvest Partners',
+    agreementType: 'WorkerHiring',
+    agreementId: 'wagr_1',
+    agreementTitle: 'Maize Harvest Crew',
+    agreedPrincipalNaira: 40000,
+    feeAmountNaira: 2000,
+    feeAmountUsdc: 1.25,
+    assetCode: 'USDC',
+    status: 'Pending Deposit',
+    escrowReference: 'FF-ACCFEE-1',
+    transactionHash: 'PENDING_LOCK',
+    createdAt: '2026-11-18T08:00:00.000Z',
+    updatedAt: '2026-11-18T08:00:00.000Z',
+  };
+
+  // Beneficiary cannot lock obligor's fee
+  const badLock = evaluateAcceptanceFeeTransition({
+    record: feeRecord,
+    action: 'LOCK_FEE',
+    actorId: 'sponsor_1',
+    actorRole: 'Sponsor',
+    timestampIso: '2026-11-18T09:00:00.000Z',
+  });
+  assert.equal(badLock.allowed, false);
+
+  // Worker locks fee
+  const locked = evaluateAcceptanceFeeTransition({
+    record: feeRecord,
+    action: 'LOCK_FEE',
+    actorId: 'worker_1',
+    actorRole: 'Worker',
+    timestampIso: '2026-11-18T09:05:00.000Z',
+    settlementHash: 'txhash_lock_1',
+  });
+  assert.equal(locked.allowed, true);
+  assert.equal(locked.nextRecord.status, 'Locked in Escrow');
+
+  // Sponsor forfeits if worker goes into hiding (requires detailed reason)
+  const missingReasonForfeit = evaluateAcceptanceFeeTransition({
+    record: locked.nextRecord,
+    action: 'REPORT_ABSCONDED_AND_FORFEIT',
+    actorId: 'sponsor_1',
+    actorRole: 'Sponsor',
+    timestampIso: '2026-11-19T10:00:00.000Z',
+    reason: 'short',
+  });
+  assert.equal(missingReasonForfeit.allowed, false);
+
+  const forfeited = evaluateAcceptanceFeeTransition({
+    record: locked.nextRecord,
+    action: 'REPORT_ABSCONDED_AND_FORFEIT',
+    actorId: 'sponsor_1',
+    actorRole: 'Sponsor',
+    timestampIso: '2026-11-19T10:05:00.000Z',
+    reason: 'Worker did not report on agreed start date and became unreachable for 72 hours.',
+    settlementHash: 'txhash_forfeit_1',
+  });
+  assert.equal(forfeited.allowed, true);
+  assert.equal(forfeited.nextRecord.status, 'Forfeited (Absconded)');
+
+  // Double resolution prevented
+  const doubleResolve = evaluateAcceptanceFeeTransition({
+    record: forfeited.nextRecord,
+    action: 'REFUND_ON_COMPLETION',
+    actorId: 'sponsor_1',
+    actorRole: 'Sponsor',
+    timestampIso: '2026-11-19T11:00:00.000Z',
+  });
+  assert.equal(doubleResolve.allowed, false);
+
+  // Clean completion refunds 100%
+  const refunded = evaluateAcceptanceFeeTransition({
+    record: locked.nextRecord,
+    action: 'REFUND_ON_COMPLETION',
+    actorId: 'sponsor_1',
+    actorRole: 'Sponsor',
+    timestampIso: '2026-11-20T12:00:00.000Z',
+    settlementHash: 'txhash_refund_1',
+  });
+  assert.equal(refunded.allowed, true);
+  assert.equal(refunded.nextRecord.status, 'Refunded');
+});
+

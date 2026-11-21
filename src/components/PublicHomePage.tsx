@@ -551,7 +551,7 @@ export const PublicHomePage: React.FC<PublicHomePageProps> = ({
                 <p className="mt-2 text-xs leading-relaxed text-[#718071]">
                   Agronomists and field supervisors accept supervision invitations from project
                   parties, upload verified field inspection photos and delay alerts, and record
-                  completion observations without holding control over user wallets.
+                  completion observations without accessing or controlling other users&apos; funds.
                 </p>
               </div>
             </article>

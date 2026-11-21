@@ -9,6 +9,7 @@ import {
   Sprout,
 } from 'lucide-react';
 import {
+  AcceptanceFeeRecord,
   AssistanceType,
   Conversation,
   DirectMessage,
@@ -34,11 +35,11 @@ import {
   WorkerProfile,
   WorkerRequest,
 } from '../types/farmfund';
-import { validateWorkerRequestDraft } from '../utils/farmfundLogic';
+import { computeUsdcFromNaira, validateWorkerRequestDraft } from '../utils/farmfundLogic';
 import { PrimaryRoleTab, RoleDashboardShell } from './RoleDashboardShell';
 import { VerificationBanner } from './VerificationBanner';
 import { MessageRecipientOption, MessagingCenter } from './MessagingCenter';
-import { StellarWalletDashboard } from './StellarWalletDashboard';
+import { StellarWalletDashboard, type WalletPaymentPrefill } from './StellarWalletDashboard';
 
 interface SponsorDashboardProps {
   user: PlatformUser;
@@ -54,6 +55,7 @@ interface SponsorDashboardProps {
   workerApplications: WorkerApplication[];
   workerAgreements: WorkerAgreement[];
   workerPayments: WorkerPayment[];
+  acceptanceFees?: AcceptanceFeeRecord[];
   supervisionRequests: SupervisionRequest[];
   supervisionAssignments: SupervisionAssignment[];
   supervisionReports: SupervisionReport[];
@@ -79,12 +81,19 @@ interface SponsorDashboardProps {
     supervisionRequired?: boolean
   ) => Promise<void>;
   onOpenAgreementModal: (agreement: SponsorFundingAgreement) => void;
+  onCompleteSupportAgreement?: (agreementId: string, notes?: string) => Promise<void>;
   onPublishWorkerJob: (draft: Partial<WorkerRequest>) => Promise<void>;
   onRespondToWorkerApp: (
     applicationId: string,
     decision: 'HIRE' | 'DECLINE'
   ) => Promise<void>;
   onInitiateWorkerWagePayment: (paymentId: string) => Promise<void>;
+  onResolveAcceptanceFee?: (
+    feeId: string,
+    action: 'REFUND_ON_COMPLETION' | 'FORFEIT_ABSCONDED' | 'DISPUTE',
+    reason?: string
+  ) => Promise<void>;
+  onRefreshSnapshot?: () => Promise<void>;
   onRequestSupervision: (params: {
     agreementId: string;
     agreementCategory: SupervisionRequest['agreementCategory'];
@@ -122,6 +131,7 @@ export const SponsorDashboard: React.FC<SponsorDashboardProps> = ({
   workerApplications,
   workerAgreements,
   workerPayments,
+  acceptanceFees = [],
   supervisionAssignments,
   supervisionReports,
   conversations,
@@ -131,9 +141,12 @@ export const SponsorDashboard: React.FC<SponsorDashboardProps> = ({
   onSendOfferToFarmer,
   onRespondToSupportRequest,
   onOpenAgreementModal,
+  onCompleteSupportAgreement,
   onPublishWorkerJob,
   onRespondToWorkerApp,
   onInitiateWorkerWagePayment,
+  onResolveAcceptanceFee,
+  onRefreshSnapshot,
   onRequestSupervision,
   onUpdateProfile,
   onSendMessage,
@@ -191,6 +204,14 @@ export const SponsorDashboard: React.FC<SponsorDashboardProps> = ({
 
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [walletPrefill, setWalletPrefill] = useState<WalletPaymentPrefill | null>(null);
+  const [abscondClaimFeeId, setAbscondClaimFeeId] = useState<string | null>(null);
+  const [abscondReason, setAbscondReason] = useState<string>('');
+
+  const openWalletWithPrefill = (prefill: WalletPaymentPrefill) => {
+    setWalletPrefill(prefill);
+    setSubView('Wallet');
+  };
 
   // Editable Profile State (Individual vs Organisation)
   const isOrg = sponsorProfile.sponsorType === 'organisation';
@@ -548,13 +569,30 @@ export const SponsorDashboard: React.FC<SponsorDashboardProps> = ({
                           {f.farmingType} ({f.cropsOrLivestock})
                         </p>
                         <p className="mt-1.5 text-[#718071]">{f.farmDescription}</p>
-                        <div className="mt-3 flex gap-2">
+                        <div className="mt-3 flex flex-wrap gap-2">
                           <button
                             type="button"
                             onClick={() => setOfferFarmerId(f.userId)}
                             className="rounded-xl bg-[#159B42] px-3.5 py-2 font-bold text-white hover:bg-[#116B32]"
                           >
                             Send Support Offer
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openWalletWithPrefill({
+                                recipientUserId: f.userId,
+                                recipientName: `${f.fullName} (${f.farmName})`,
+                                amountUsdc: '100.00',
+                                assetCode: 'USDC',
+                                transactionType: 'Farm Sponsorship Disbursement',
+                                memoReference: `Sponsor ${f.farmName}`.slice(0, 28),
+                                purpose: 'FARM_SPONSORSHIP',
+                              })
+                            }
+                            className="rounded-xl border border-emerald-700 bg-white px-3.5 py-2 font-bold text-[#116B32] hover:bg-[#EAF6EC]"
+                          >
+                            Send Sponsorship (USDC)
                           </button>
                           <button
                             type="button"
@@ -1039,36 +1077,198 @@ export const SponsorDashboard: React.FC<SponsorDashboardProps> = ({
 
                 {workerPayments.length > 0 && (
                   <div className="mt-4 space-y-2 border-t border-slate-100 pt-4">
-                    {workerPayments.map((pay) => (
-                      <div
-                        key={pay.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#F5F8F3] p-3 text-xs"
-                      >
-                        <span>
-                          <strong>{pay.workerName}</strong> · ₦
-                          {pay.amountNaira.toLocaleString('en-NG')} ({pay.status})
-                        </span>
-                        {pay.status === 'Pending Work Completion' && (
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => void onInitiateWorkerWagePayment(pay.id)}
-                            className="rounded-lg bg-[#159B42] px-3 py-1 font-bold text-white"
-                          >
-                            Confirm Work &amp; Pay Wage
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                    <h4 className="text-xs font-bold text-[#243629]">
+                      Post-Work Worker Wage Settlements (USDC · 0% Sponsor Deduction)
+                    </h4>
+                    {workerPayments.map((pay) => {
+                      const wageUsdc = computeUsdcFromNaira(pay.amountNaira).toFixed(2);
+                      return (
+                        <div
+                          key={pay.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#F5F8F3] p-3 text-xs"
+                        >
+                          <span>
+                            <strong>{pay.workerName}</strong> · ₦
+                            {pay.amountNaira.toLocaleString('en-NG')} ({wageUsdc} USDC) —{' '}
+                            <strong className="text-[#116B32]">{pay.status}</strong>
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openWalletWithPrefill({
+                                  recipientUserId: pay.workerId,
+                                  recipientName: pay.workerName,
+                                  amountUsdc: wageUsdc,
+                                  amountNaira: pay.amountNaira,
+                                  assetCode: 'USDC',
+                                  transactionType: 'Post-Work Worker Wage USDC',
+                                  memoReference: `Wage ${pay.jobTitle}`.slice(0, 28),
+                                  purpose: 'POST_WORK_WORKER_WAGE',
+                                  relatedWorkerPaymentId: pay.id,
+                                })
+                              }
+                              className="rounded-lg border border-emerald-700 bg-white px-3 py-1 font-bold text-[#116B32] hover:bg-[#EAF6EC]"
+                            >
+                              Pay Worker Wage ({wageUsdc} USDC)
+                            </button>
+                            {pay.status === 'Pending Work Completion' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void onInitiateWorkerWagePayment(pay.id)}
+                                className="rounded-lg bg-[#159B42] px-3 py-1 font-bold text-white"
+                              >
+                                Confirm Work &amp; Pay Wage
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </section>
             </div>
           )}
 
-          {/* 4. AGREEMENTS, SUPERVISION REQUESTS & INSPECTION REPORTS */}
+          {/* 4. AGREEMENTS, ACCEPTANCE FEES, SUPERVISION & SPONSOR SETTLEMENTS */}
           {subView === 'Agreements & Supervision' && (
             <div className="space-y-6">
+              {acceptanceFees.length > 0 && (
+                <section className="rounded-2xl border border-amber-300 bg-amber-50/70 p-6">
+                  <h2 className="text-base font-bold text-[#243629]">
+                    Acceptance Fee &amp; Anti-Absconding Monitor ({acceptanceFees.length})
+                  </h2>
+                  <p className="mt-1 text-xs text-amber-950">
+                    Farmers and hired Workers lock a 5% refundable USDC commitment bond before work
+                    or support begins. Refund 100% upon verified completion, or claim forfeiture if
+                    a party absconds / goes into hiding.
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    {acceptanceFees.map((fee) => (
+                      <div
+                        key={fee.id}
+                        className="rounded-xl border border-amber-200 bg-white p-4 text-xs"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="font-bold text-[#243629]">
+                              {fee.agreementTitle} · {fee.obligorRole}: {fee.obligorName}
+                            </p>
+                            <p className="mt-0.5 font-mono font-bold text-[#116B32]">
+                              Bond: {fee.feeAmountUsdc.toFixed(2)} USDC (₦
+                              {fee.feeAmountNaira.toLocaleString('en-NG')})
+                            </p>
+                            {fee.abscondedReason && (
+                              <p className="mt-1 text-red-800">Note: {fee.abscondedReason}</p>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded-md bg-[#EAF6EC] px-2.5 py-1 font-mono font-bold text-[#116B32]">
+                              {fee.status}
+                            </span>
+                            {fee.status === 'Locked in Escrow' && onResolveAcceptanceFee && (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={async () => {
+                                    setBusy(true);
+                                    try {
+                                      await onResolveAcceptanceFee(fee.id, 'REFUND_ON_COMPLETION');
+                                      setFeedback({
+                                        type: 'ok',
+                                        text: `Acceptance fee (${fee.feeAmountUsdc.toFixed(2)} USDC) refunded to ${fee.obligorName}.`,
+                                      });
+                                    } catch (err: unknown) {
+                                      setFeedback({
+                                        type: 'err',
+                                        text: err instanceof Error ? err.message : 'Refund failed.',
+                                      });
+                                    } finally {
+                                      setBusy(false);
+                                    }
+                                  }}
+                                  className="rounded-lg bg-[#159B42] px-3 py-1.5 font-bold text-white"
+                                >
+                                  Refund on Completion
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setAbscondClaimFeeId(fee.id);
+                                    setAbscondReason('');
+                                  }}
+                                  className="rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 font-bold text-red-800"
+                                >
+                                  Report Absconded / Claim Fee
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {abscondClaimFeeId === fee.id && onResolveAcceptanceFee && (
+                          <div className="mt-3 space-y-2 rounded-xl border border-red-200 bg-red-50 p-3">
+                            <label className="block font-bold text-red-900">
+                              Document Absconding / Gone Into Hiding Reason (min 10 characters):
+                            </label>
+                            <textarea
+                              rows={2}
+                              value={abscondReason}
+                              onChange={(e) => setAbscondReason(e.target.value)}
+                              placeholder="Explain how the worker or farmer became unreachable or abandoned the agreement..."
+                              className="w-full rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={busy || abscondReason.trim().length < 10}
+                                onClick={async () => {
+                                  setBusy(true);
+                                  try {
+                                    await onResolveAcceptanceFee(
+                                      fee.id,
+                                      'FORFEIT_ABSCONDED',
+                                      abscondReason.trim()
+                                    );
+                                    setAbscondClaimFeeId(null);
+                                    setAbscondReason('');
+                                    setFeedback({
+                                      type: 'ok',
+                                      text: `Acceptance fee (${fee.feeAmountUsdc.toFixed(2)} USDC) forfeited and Admin mediation log recorded.`,
+                                    });
+                                  } catch (err: unknown) {
+                                    setFeedback({
+                                      type: 'err',
+                                      text: err instanceof Error ? err.message : 'Claim failed.',
+                                    });
+                                  } finally {
+                                    setBusy(false);
+                                  }
+                                }}
+                                className="rounded-lg bg-red-700 px-3 py-1.5 font-bold text-white disabled:opacity-50"
+                              >
+                                Confirm Forfeiture Claim
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAbscondClaimFeeId(null)}
+                                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-bold text-[#243629]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
               <section className="rounded-2xl border border-slate-200 bg-white p-6">
                 <h2 className="text-base font-bold text-[#243629]">
                   Accepted &amp; Pending Support Agreements ({sponsorAgreements.length})
@@ -1079,31 +1279,130 @@ export const SponsorDashboard: React.FC<SponsorDashboardProps> = ({
                   </p>
                 ) : (
                   <div className="mt-4 space-y-3">
-                    {sponsorAgreements.map((agr) => (
-                      <div
-                        key={agr.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-[#F5F8F3] p-4 text-xs"
-                      >
-                        <div>
-                          <p className="font-bold text-[#243629]">
-                            {agr.requestTitle} · Farmer: {agr.farmerName}
-                          </p>
-                          <p className="text-[#718071]">
-                            {agr.sponsorContribution} · {agr.shareType} · Status: {agr.status}
-                            {agr.assignedSupervisorName
-                              ? ` · Supervisor: ${agr.assignedSupervisorName}`
-                              : ''}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => onOpenAgreementModal(agr)}
-                          className="rounded-xl bg-[#159B42] px-4 py-2 font-bold text-white hover:bg-[#116B32]"
+                    {sponsorAgreements.map((agr) => {
+                      const usdcAmt = computeUsdcFromNaira(
+                        agr.contributionValueNaira || 160000
+                      ).toFixed(2);
+                      return (
+                        <div
+                          key={agr.id}
+                          className="rounded-xl border border-slate-200 bg-[#F5F8F3] p-4 text-xs"
                         >
-                          View Agreement
-                        </button>
-                      </div>
-                    ))}
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="font-bold text-[#243629]">
+                                {agr.requestTitle} · Farmer: {agr.farmerName}
+                              </p>
+                              <p className="text-[#718071]">
+                                {agr.sponsorContribution} · {agr.shareType} · Status: {agr.status}
+                                {agr.assignedSupervisorName
+                                  ? ` · Supervisor: ${agr.assignedSupervisorName}`
+                                  : ''}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => onOpenAgreementModal(agr)}
+                                className="rounded-xl bg-[#159B42] px-3.5 py-2 font-bold text-white hover:bg-[#116B32]"
+                              >
+                                View Agreement
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openWalletWithPrefill({
+                                    recipientUserId: agr.farmerId,
+                                    recipientName: agr.farmerName,
+                                    amountUsdc: usdcAmt,
+                                    amountNaira: agr.contributionValueNaira,
+                                    assetCode: 'USDC',
+                                    transactionType: 'Farm Sponsorship Disbursement',
+                                    memoReference: `Fund ${agr.requestTitle}`.slice(0, 28),
+                                    purpose: 'FARM_SPONSORSHIP',
+                                    relatedAgreementId: agr.id,
+                                  })
+                                }
+                                className="rounded-xl border border-emerald-700 bg-white px-3 py-2 font-bold text-[#116B32] hover:bg-[#EAF6EC]"
+                              >
+                                Send Farm Funds (USDC)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openWalletWithPrefill({
+                                    recipientUserId: agr.farmerId,
+                                    recipientName: agr.farmerName,
+                                    amountUsdc: '50.00',
+                                    assetCode: 'USDC',
+                                    transactionType: 'Post-Work Farmer Settlement',
+                                    memoReference: `PostWork ${agr.requestTitle}`.slice(0, 28),
+                                    purpose: 'POST_WORK_FARMER_SETTLEMENT',
+                                    relatedAgreementId: agr.id,
+                                  })
+                                }
+                                className="rounded-xl border border-slate-300 bg-white px-3 py-2 font-bold text-[#243629] hover:bg-slate-50"
+                              >
+                                Pay Farmer After Work (USDC)
+                              </button>
+                              {agr.assignedSupervisorId && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openWalletWithPrefill({
+                                      recipientUserId: agr.assignedSupervisorId,
+                                      recipientName:
+                                        agr.assignedSupervisorName || 'Assigned Supervisor',
+                                      amountUsdc: '15.00',
+                                      assetCode: 'USDC',
+                                      transactionType: 'Supervision Fee USDC',
+                                      memoReference: `Supv ${agr.requestTitle}`.slice(0, 28),
+                                      purpose: 'SUPERVISION_FEE',
+                                      relatedAgreementId: agr.id,
+                                    })
+                                  }
+                                  className="rounded-xl border border-emerald-300 bg-[#EAF6EC] px-3 py-2 font-bold text-[#116B32]"
+                                >
+                                  Pay Supervisor (USDC)
+                                </button>
+                              )}
+                              {agr.status === 'Active Agreement' && onCompleteSupportAgreement && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={async () => {
+                                    setBusy(true);
+                                    try {
+                                      await onCompleteSupportAgreement(
+                                        agr.id,
+                                        'Sponsor confirmed agricultural fulfilment.'
+                                      );
+                                      setFeedback({
+                                        type: 'ok',
+                                        text: `Support agreement "${agr.requestTitle}" marked Completed and any locked Farmer Acceptance Fee refunded.`,
+                                      });
+                                    } catch (err: unknown) {
+                                      setFeedback({
+                                        type: 'err',
+                                        text:
+                                          err instanceof Error
+                                            ? err.message
+                                            : 'Unable to complete support agreement.',
+                                      });
+                                    } finally {
+                                      setBusy(false);
+                                    }
+                                  }}
+                                  className="rounded-xl bg-slate-900 px-3 py-2 font-bold text-white hover:bg-slate-800"
+                                >
+                                  Mark Completed &amp; Refund Bond
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </section>
@@ -1224,6 +1523,10 @@ export const SponsorDashboard: React.FC<SponsorDashboardProps> = ({
               sponsorType={sponsorProfile.sponsorType}
               supportRequests={supportRequests}
               workerRequests={myPostedJobs}
+              acceptanceFees={acceptanceFees}
+              prefillPayment={walletPrefill}
+              onClearPrefill={() => setWalletPrefill(null)}
+              onPaymentRecorded={onRefreshSnapshot}
             />
           )}
         </div>

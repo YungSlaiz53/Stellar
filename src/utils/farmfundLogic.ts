@@ -1,5 +1,6 @@
 import { StrKey } from '@stellar/stellar-sdk';
 import {
+  AcceptanceFeeRecord,
   PlatformUser,
   ProfileVerificationStatus,
   RegistrationPayload,
@@ -278,10 +279,16 @@ export function canSupervisorAccessProject(params: {
 }
 
 /**
- * Enforces Section 6 rule: Supervisors have zero wallet transfer or escrow release powers.
+ * Dedicated embedded Stellar USDC wallets are active for Worker, Farmer, Sponsor, and Supervisor.
+ * Admin holds read-only compliance oversight and never executes wallet transfers.
  */
 export function canRoleExecuteWalletTransfer(role: UserRole): boolean {
-  return role === 'Worker' || role === 'Farmer' || role === 'Sponsor';
+  return (
+    role === 'Worker' ||
+    role === 'Farmer' ||
+    role === 'Sponsor' ||
+    role === 'Supervisor'
+  );
 }
 
 /**
@@ -715,3 +722,196 @@ export function computeSeparatedPlatformMetrics(params: {
     },
   };
 }
+
+// ============================================================================
+// ACCEPTANCE FEE (ANTI-ABSCONDING COMMITMENT BOND) & USDC SETTLEMENT HELPERS
+// ============================================================================
+
+export const DEFAULT_NGN_PER_USDC_RATE = 1600;
+
+export function computeUsdcFromNaira(
+  amountNaira: number,
+  ngnPerUsdcRate: number = DEFAULT_NGN_PER_USDC_RATE
+): number {
+  const safeNaira = Math.max(0, Number(amountNaira) || 0);
+  const safeRate = ngnPerUsdcRate > 0 ? ngnPerUsdcRate : DEFAULT_NGN_PER_USDC_RATE;
+  return Number((safeNaira / safeRate).toFixed(4));
+}
+
+export interface AcceptanceFeeCalculation {
+  agreedPrincipalNaira: number;
+  feePercentage: number;
+  feeAmountNaira: number;
+  feeAmountUsdc: number;
+  ngnPerUsdcRate: number;
+  assetCode: 'USDC';
+  policySummary: string;
+}
+
+/**
+ * Computes a fair anti-absconding commitment Acceptance Fee (5% of agreed wage/sponsorship principal,
+ * bounded between ₦1,000 and ₦25,000, converted to Stellar USDC). 100% refundable upon verified completion;
+ * forfeited to the Sponsor/Hirer only if the Worker or Farmer goes into hiding / absconds without fulfilment.
+ */
+export function calculateAcceptanceFee(params: {
+  principalNaira: number;
+  obligorRole: 'Worker' | 'Farmer';
+  ngnPerUsdcRate?: number;
+}): AcceptanceFeeCalculation {
+  const principal = Math.max(0, Number(params.principalNaira) || 0);
+  const rate =
+    params.ngnPerUsdcRate && params.ngnPerUsdcRate > 0
+      ? params.ngnPerUsdcRate
+      : DEFAULT_NGN_PER_USDC_RATE;
+  const rawFivePercent = Math.round(principal * 0.05);
+  const feeAmountNaira = Math.min(25000, Math.max(1000, rawFivePercent || 1000));
+  const feeAmountUsdc = computeUsdcFromNaira(feeAmountNaira, rate);
+  const roleLabel = params.obligorRole === 'Worker' ? 'Worker' : 'Farmer';
+
+  return {
+    agreedPrincipalNaira: principal,
+    feePercentage: 5,
+    feeAmountNaira,
+    feeAmountUsdc,
+    ngnPerUsdcRate: rate,
+    assetCode: 'USDC',
+    policySummary: `${roleLabel} Acceptance Fee: ${feeAmountUsdc.toFixed(2)} USDC (₦${feeAmountNaira.toLocaleString('en-NG')}) held as anti-absconding commitment bond. 100% refunded upon completion; forfeited to Sponsor/Hirer if ${roleLabel.toLowerCase()} goes into hiding or abandons the agreement.`,
+  };
+}
+
+export function evaluateAcceptanceFeeTransition(params: {
+  record: AcceptanceFeeRecord;
+  action:
+    | 'LOCK_FEE'
+    | 'REFUND_ON_COMPLETION'
+    | 'REPORT_ABSCONDED_AND_FORFEIT'
+    | 'DISPUTE';
+  actorId: string;
+  actorRole: UserRole;
+  timestampIso: string;
+  reason?: string;
+  settlementHash?: string;
+}): { allowed: boolean; nextRecord: AcceptanceFeeRecord; error?: string } {
+  const { record, action, actorId, actorRole, timestampIso, reason, settlementHash } = params;
+
+  if (record.status === 'Refunded' || record.status === 'Forfeited (Absconded)') {
+    return {
+      allowed: false,
+      nextRecord: record,
+      error: `Acceptance fee has already been finalised as "${record.status}".`,
+    };
+  }
+
+  if (action === 'LOCK_FEE') {
+    if (actorId !== record.obligorId && actorRole !== 'Admin') {
+      return {
+        allowed: false,
+        nextRecord: record,
+        error: `Only the assigned ${record.obligorRole} (${record.obligorName}) can lock their acceptance fee.`,
+      };
+    }
+    if (record.status !== 'Pending Deposit') {
+      return {
+        allowed: false,
+        nextRecord: record,
+        error: `Acceptance fee cannot be locked from status "${record.status}".`,
+      };
+    }
+    return {
+      allowed: true,
+      nextRecord: {
+        ...record,
+        status: 'Locked in Escrow',
+        transactionHash: settlementHash || record.transactionHash,
+        updatedAt: timestampIso,
+      },
+    };
+  }
+
+  if (action === 'REFUND_ON_COMPLETION') {
+    if (actorId !== record.beneficiaryId && actorRole !== 'Admin') {
+      return {
+        allowed: false,
+        nextRecord: record,
+        error: 'Only the Sponsor/Hirer beneficiary or an Admin can authorise completion refund.',
+      };
+    }
+    if (record.status !== 'Locked in Escrow' && record.status !== 'Disputed') {
+      return {
+        allowed: false,
+        nextRecord: record,
+        error: 'Acceptance fee must be locked in escrow before it can be refunded.',
+      };
+    }
+    return {
+      allowed: true,
+      nextRecord: {
+        ...record,
+        status: 'Refunded',
+        settlementHash: settlementHash || record.settlementHash,
+        updatedAt: timestampIso,
+        resolvedAt: timestampIso,
+      },
+    };
+  }
+
+  if (action === 'REPORT_ABSCONDED_AND_FORFEIT') {
+    if (actorId !== record.beneficiaryId && actorRole !== 'Admin') {
+      return {
+        allowed: false,
+        nextRecord: record,
+        error: 'Only the aggrieved Sponsor/Hirer beneficiary or an Admin can report absconding and claim acceptance fee forfeiture.',
+      };
+    }
+    if (record.status !== 'Locked in Escrow' && record.status !== 'Disputed') {
+      return {
+        allowed: false,
+        nextRecord: record,
+        error: 'Acceptance fee must be locked in escrow before forfeiture can be claimed.',
+      };
+    }
+    const cleanReason = (reason || '').trim();
+    if (cleanReason.length < 10) {
+      return {
+        allowed: false,
+        nextRecord: record,
+        error: 'Please provide clear details (at least 10 characters) describing how the worker/farmer absconded or went into hiding.',
+      };
+    }
+    return {
+      allowed: true,
+      nextRecord: {
+        ...record,
+        status: 'Forfeited (Absconded)',
+        abscondedReason: cleanReason,
+        reportedById: actorId,
+        settlementHash: settlementHash || record.settlementHash,
+        updatedAt: timestampIso,
+        resolvedAt: timestampIso,
+      },
+    };
+  }
+
+  // DISPUTE
+  if (
+    actorId !== record.obligorId &&
+    actorId !== record.beneficiaryId &&
+    actorRole !== 'Admin'
+  ) {
+    return {
+      allowed: false,
+      nextRecord: record,
+      error: 'Only agreement participants or an Admin can raise a dispute on this acceptance fee.',
+    };
+  }
+  return {
+    allowed: true,
+    nextRecord: {
+      ...record,
+      status: 'Disputed',
+      abscondedReason: reason?.trim() || record.abscondedReason,
+      updatedAt: timestampIso,
+    },
+  };
+}
+

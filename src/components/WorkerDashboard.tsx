@@ -8,6 +8,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import {
+  AcceptanceFeeRecord,
   Conversation,
   DirectMessage,
   FARM_WORK_CATEGORIES,
@@ -31,6 +32,7 @@ interface WorkerDashboardProps {
   workerApplications: WorkerApplication[];
   workerAgreements: WorkerAgreement[];
   workerPayments: WorkerPayment[];
+  acceptanceFees?: AcceptanceFeeRecord[];
   conversations: Conversation[];
   messages: DirectMessage[];
   notifications: PlatformNotification[];
@@ -42,6 +44,7 @@ interface WorkerDashboardProps {
   }) => Promise<void>;
   onWithdrawApplication: (applicationId: string) => Promise<void>;
   onConfirmWageReceipt: (paymentId: string) => Promise<void>;
+  onLockAcceptanceFee?: (feeId: string) => Promise<void>;
   onUpdateProfile: (profilePatch: Record<string, unknown>) => Promise<{
     reverificationTriggered: boolean;
   }>;
@@ -65,6 +68,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   workerApplications,
   workerAgreements,
   workerPayments,
+  acceptanceFees = [],
   conversations,
   messages,
   notifications,
@@ -72,6 +76,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
   onApplyForJob,
   onWithdrawApplication,
   onConfirmWageReceipt,
+  onLockAcceptanceFee,
   onUpdateProfile,
   onSendMessage,
   onMarkConversationRead,
@@ -339,6 +344,27 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
             </div>
           )}
 
+          {acceptanceFees.some((f) => f.status === 'Pending Deposit' && f.obligorId === user.id) && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-950">
+              <div>
+                <p className="font-bold">
+                  Action Required: Lock Your Anti-Absconding Acceptance Fee (USDC)
+                </p>
+                <p className="mt-0.5 text-amber-900">
+                  Lock your refundable 5% commitment bond before starting hired farm work. 100%
+                  refunded upon verified work completion; forfeited only if you abscond / no-show.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSubView('Accepted & History')}
+                className="rounded-xl bg-amber-900 px-3.5 py-2 text-xs font-bold text-white hover:bg-amber-800"
+              >
+                Review Acceptance Fee
+              </button>
+            </div>
+          )}
+
           {subView === 'Available Jobs' && (
             <div className="space-y-4">
               {/* Search & Filter Bar */}
@@ -568,6 +594,78 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
 
           {subView === 'Accepted & History' && (
             <div className="space-y-4">
+              {/* Worker Acceptance Fee Commitment Bonds */}
+              {acceptanceFees.length > 0 && (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50/70 p-6">
+                  <h2 className="text-base font-bold text-[#243629]">
+                    Worker Acceptance Fees — Anti-Absconding Protection ({acceptanceFees.length})
+                  </h2>
+                  <p className="mt-1 text-xs text-amber-950">
+                    Refunded 100% back to your wallet upon verified work completion. Forfeited to
+                    the Hirer only if a worker absconds / goes into hiding without completing agreed
+                    duties.
+                  </p>
+                  <div className="mt-4 space-y-3">
+                    {acceptanceFees.map((fee) => (
+                      <div
+                        key={fee.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-4 text-xs"
+                      >
+                        <div>
+                          <p className="font-bold text-[#243629]">
+                            {fee.agreementTitle} · Hirer: {fee.beneficiaryName}
+                          </p>
+                          <p className="mt-0.5 font-mono font-bold text-[#116B32]">
+                            Acceptance Fee: {fee.feeAmountUsdc.toFixed(2)} USDC (₦
+                            {fee.feeAmountNaira.toLocaleString('en-NG')})
+                          </p>
+                          {fee.abscondedReason && (
+                            <p className="mt-1 text-red-800">Resolution Note: {fee.abscondedReason}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-md bg-[#EAF6EC] px-2.5 py-1 font-mono font-bold text-[#116B32]">
+                            {fee.status}
+                          </span>
+                          {fee.status === 'Pending Deposit' &&
+                            fee.obligorId === user.id &&
+                            onLockAcceptanceFee && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={async () => {
+                                  setBusy(true);
+                                  setActionMsg(null);
+                                  try {
+                                    await onLockAcceptanceFee(fee.id);
+                                    setActionMsg({
+                                      type: 'ok',
+                                      text: `Acceptance Fee (${fee.feeAmountUsdc.toFixed(2)} USDC) locked in escrow. It will be 100% refunded upon work completion.`,
+                                    });
+                                  } catch (err: unknown) {
+                                    setActionMsg({
+                                      type: 'err',
+                                      text:
+                                        err instanceof Error
+                                          ? err.message
+                                          : 'Failed to lock acceptance fee.',
+                                    });
+                                  } finally {
+                                    setBusy(false);
+                                  }
+                                }}
+                                className="rounded-lg bg-[#159B42] px-3.5 py-1.5 font-bold text-white hover:bg-[#116B32]"
+                              >
+                                Lock Acceptance Fee ({fee.feeAmountUsdc.toFixed(2)} USDC)
+                              </button>
+                            )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-slate-200 bg-white p-6">
                 <div className="flex items-center gap-2">
                   <ClipboardList className="h-4 w-4 text-[#159B42]" />
@@ -633,7 +731,7 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-xs font-bold text-[#116B32]">
                 <Wallet className="h-4 w-4" />
-                <span>Embedded Worker Wage Wallet (Receive Wages Directly on Stellar Testnet)</span>
+                <span>Embedded Worker Wage Wallet (Receive &amp; Send Stellar USDC Directly)</span>
               </div>
               <StellarWalletDashboard
                 userId={user.id}
@@ -641,6 +739,8 @@ export const WorkerDashboard: React.FC<WorkerDashboardProps> = ({
                 role="Worker"
                 supportRequests={[]}
                 workerRequests={workerRequests}
+                acceptanceFees={acceptanceFees}
+                onLockAcceptanceFee={onLockAcceptanceFee}
               />
             </div>
           )}
